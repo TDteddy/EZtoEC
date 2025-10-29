@@ -1,0 +1,45 @@
+# 프로젝트×부서별 운송료율/판매수수료율 설정
+# 구조: 브랜드_국내/해외 > 판매채널 > {shipping: 운송료율, commission: 판매수수료율}
+
+# 예시 설정
+닥터시드_국내:
+  스마트스토어:
+    shipping: 0.13
+    commission: 0.06
+  카페24:
+    shipping: 0.09
+    commission: 0.055
+  쿠팡:
+    shipping: 0.15
+    commission: 0.08
+
+딸로_국내:
+  스마트스토어:
+    shipping: 0.12
+    commission: 0.055
+  카페24:
+    shipping: 0.09
+    commission: 0.05
+
+테르스_국내:
+  스마트스토어:
+    shipping: 0.13
+    commission: 0.06
+  쿠팡:
+    shipping: 0.14
+    commission: 0.07
+
+# 해외 판매
+닥터시드_해외:
+  아마존:
+    shipping: 0.20
+    commission: 0.15
+  이베이:
+    shipping: 0.18
+    commission: 0.12
+
+# 기타 브랜드도 동일한 형식으로 추가
+# 브랜드명_국내:
+#   판매채널명:
+#     shipping: 0.00
+#     commission: 0.00
