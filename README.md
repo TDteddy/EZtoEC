@@ -98,8 +98,24 @@ save_to_excel(result, "output_ecount.xlsx")
 
 이지어드민 엑셀 변환 → 이카운트 API 업로드를 한 번에 실행:
 
+#### 통합 실행 (권장)
 ```bash
-python upload_to_ecount.py
+# 1. data/ 폴더에 이지어드민 엑셀 파일 저장
+# 2. 환경 변수 설정
+# 3. 실행
+python main.py
+```
+
+#### 실행 모드
+```bash
+# 통합 처리 (변환 + 로그인 + 업로드)
+python main.py
+
+# 로그인만 테스트
+python main.py login
+
+# 엑셀 변환만 수행
+python main.py convert
 ```
 
 **처리 흐름:**
@@ -108,7 +124,23 @@ python upload_to_ecount.py
 3. 판매 데이터 API 전송
 4. 구매 데이터 API 전송
 
-**수동 통합 예제:**
+#### 프로그래밍 방식 사용
+```python
+from main import process_and_upload
+
+# 통합 처리 함수 사용
+results = process_and_upload(
+    upload_sales=True,      # 판매 데이터 업로드
+    upload_purchase=True,   # 구매 데이터 업로드
+    save_excel=True         # 엑셀 파일로도 저장
+)
+
+# 결과 확인
+print(results["sales_upload"]["success_count"])
+print(results["purchase_upload"]["success_count"])
+```
+
+#### 개별 함수 사용
 ```python
 from excel_converter import process_ezadmin_to_ecount
 from main import login_ecount, save_sale, save_purchase
@@ -145,10 +177,9 @@ if not purchase_df.empty:
 ```
 EZtoEC/
 ├── data/                    # 이지어드민 엑셀 파일 저장 폴더
-├── main.py                  # 이카운트 로그인/판매/구매 API
+├── main.py                  # 통합 메인 파일 (로그인/판매/구매 API + 통합 실행)
 ├── gpt_client.py            # OpenAI GPT API 클라이언트
 ├── excel_converter.py       # 엑셀 변환 모듈
-├── upload_to_ecount.py      # 통합 실행 스크립트 (엑셀 변환 → API 업로드)
 ├── rates.yml                # 운송료/판매수수료 요율 설정
 ├── requirements.txt         # 의존성 패키지
 ├── .env.example             # 환경 변수 예제

@@ -359,29 +359,282 @@ def save_purchase(session_id: str, purchase_df: pd.DataFrame,
     return result
 
 
-if __name__ == "__main__":
+def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
+                       save_excel: bool = True) -> dict:
+    """
+    이지어드민 엑셀 변환 → 이카운트 API 업로드 통합 처리
+
+    Args:
+        upload_sales: 판매 데이터 업로드 여부
+        upload_purchase: 구매 데이터 업로드 여부
+        save_excel: 엑셀 파일로도 저장할지 여부
+
+    Returns:
+        처리 결과 딕셔너리
+    """
+    from excel_converter import process_ezadmin_to_ecount, save_to_excel
+
+    print("=" * 80)
+    print("이지어드민 → 이카운트 통합 처리 시작")
+    print("=" * 80)
+
+    results = {
+        "excel_conversion": None,
+        "login": None,
+        "sales_upload": None,
+        "purchase_upload": None
+    }
+
+    # ===== 1단계: 엑셀 변환 =====
+    print("\n[1단계] 이지어드민 엑셀 파일 변환 중...")
     try:
-        result = login_ecount(
+        excel_result = process_ezadmin_to_ecount()
+        sales_df = excel_result["sales"]
+        purchase_df = excel_result["purchase"]
+        voucher_df = excel_result["voucher"]
+
+        results["excel_conversion"] = {
+            "success": True,
+            "sales_count": len(sales_df),
+            "purchase_count": len(purchase_df),
+            "voucher_count": len(voucher_df)
+        }
+
+        print(f"✅ 변환 완료:")
+        print(f"  - 판매: {len(sales_df)}건")
+        print(f"  - 매입: {len(purchase_df)}건")
+        print(f"  - 매입전표: {len(voucher_df)}건")
+
+        # 선택적: 엑셀 파일로 저장
+        if save_excel:
+            save_to_excel(excel_result, "output_ecount.xlsx")
+            print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
+
+    except Exception as e:
+        print(f"❌ 엑셀 변환 실패: {e}")
+        results["excel_conversion"] = {"success": False, "error": str(e)}
+        return results
+
+    # ===== 2단계: 이카운트 로그인 =====
+    print("\n[2단계] 이카운트 로그인 중...")
+    try:
+        login_result = login_ecount(
             com_code=COM_CODE,
             user_id=USER_ID,
             api_cert_key=API_CERT_KEY,
             lan_type=LAN_TYPE,
             zone=ZONE,
-            test=USE_TEST_SERVER,
+            test=USE_TEST_SERVER
         )
 
-        # 전체 결과 출력
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-
         # SESSION_ID 추출
-        data = result.get("Data", {}) or {}
+        data = login_result.get("Data", {}) or {}
         datas = data.get("Datas", {}) or {}
         session_id = datas.get("SESSION_ID")
 
-        if session_id:
-            print("\n✨ SESSION_ID:", session_id)
-        else:
-            print("\nSESSION_ID를 찾을 수 없습니다. 응답 구조를 확인하세요.")
+        if not session_id:
+            print("❌ SESSION_ID를 찾을 수 없습니다.")
+            results["login"] = {"success": False, "error": "No SESSION_ID"}
+            return results
+
+        results["login"] = {"success": True, "session_id": session_id}
+        print(f"✅ 로그인 성공: SESSION_ID={session_id[:20]}...")
 
     except Exception as e:
-        print("로그인 실패:", e)
+        print(f"❌ 로그인 실패: {e}")
+        results["login"] = {"success": False, "error": str(e)}
+        return results
+
+    # ===== 3단계: 판매 데이터 업로드 =====
+    if upload_sales and not sales_df.empty:
+        print(f"\n[3단계] 판매 데이터 업로드 중... ({len(sales_df)}건)")
+        try:
+            sale_result = save_sale(
+                session_id=session_id,
+                sales_df=sales_df,
+                zone=ZONE,
+                test=USE_TEST_SERVER
+            )
+
+            # 결과 분석
+            result_data = sale_result.get("Data", {})
+            success_cnt = result_data.get("SuccessCnt", 0)
+            fail_cnt = result_data.get("FailCnt", 0)
+            slip_nos = result_data.get("SlipNos", [])
+
+            results["sales_upload"] = {
+                "success": True,
+                "success_count": success_cnt,
+                "fail_count": fail_cnt,
+                "slip_nos": slip_nos
+            }
+
+            print(f"✅ 판매 업로드 완료:")
+            print(f"  - 성공: {success_cnt}건")
+            print(f"  - 실패: {fail_cnt}건")
+            if slip_nos:
+                print(f"  - 전표번호: {', '.join(slip_nos)}")
+
+            # 실패 상세
+            if fail_cnt > 0:
+                result_details = result_data.get("ResultDetails", [])
+                for detail in result_details:
+                    if not detail.get("IsSuccess", False):
+                        print(f"  ⚠️ 오류: {detail.get('TotalError', '')}")
+
+        except Exception as e:
+            print(f"❌ 판매 업로드 실패: {e}")
+            results["sales_upload"] = {"success": False, "error": str(e)}
+    elif not sales_df.empty:
+        print("\n[3단계] 판매 데이터 업로드 건너뜀 (upload_sales=False)")
+    else:
+        print("\n[3단계] 판매 데이터가 없습니다. 건너뜁니다.")
+
+    # ===== 4단계: 구매 데이터 업로드 =====
+    if upload_purchase and not purchase_df.empty:
+        print(f"\n[4단계] 구매 데이터 업로드 중... ({len(purchase_df)}건)")
+        try:
+            purchase_result = save_purchase(
+                session_id=session_id,
+                purchase_df=purchase_df,
+                zone=ZONE,
+                test=USE_TEST_SERVER
+            )
+
+            # 결과 분석
+            result_data = purchase_result.get("Data", {})
+            success_cnt = result_data.get("SuccessCnt", 0)
+            fail_cnt = result_data.get("FailCnt", 0)
+            slip_nos = result_data.get("SlipNos", [])
+
+            results["purchase_upload"] = {
+                "success": True,
+                "success_count": success_cnt,
+                "fail_count": fail_cnt,
+                "slip_nos": slip_nos
+            }
+
+            print(f"✅ 구매 업로드 완료:")
+            print(f"  - 성공: {success_cnt}건")
+            print(f"  - 실패: {fail_cnt}건")
+            if slip_nos:
+                print(f"  - 전표번호: {', '.join(slip_nos)}")
+
+            # 실패 상세
+            if fail_cnt > 0:
+                result_details = result_data.get("ResultDetails", [])
+                for detail in result_details:
+                    if not detail.get("IsSuccess", False):
+                        print(f"  ⚠️ 오류: {detail.get('TotalError', '')}")
+
+        except Exception as e:
+            print(f"❌ 구매 업로드 실패: {e}")
+            results["purchase_upload"] = {"success": False, "error": str(e)}
+    elif not purchase_df.empty:
+        print("\n[4단계] 구매 데이터 업로드 건너뜀 (upload_purchase=False)")
+    else:
+        print("\n[4단계] 구매 데이터가 없습니다. 건너뜁니다.")
+
+    # ===== 완료 =====
+    print("\n" + "=" * 80)
+    print("통합 처리 완료")
+    print("=" * 80)
+
+    return results
+
+
+if __name__ == "__main__":
+    import sys
+
+    # 환경 변수 확인
+    if not all([USER_ID, API_CERT_KEY, COM_CODE]):
+        print("❌ 환경 변수가 설정되지 않았습니다.")
+        print("다음 환경 변수를 설정하세요:")
+        print("  - ECOUNT_USER_ID")
+        print("  - ECOUNT_API_CERT_KEY")
+        print("  - ECOUNT_COM_CODE")
+        print("\n예시:")
+        print("  export ECOUNT_USER_ID='your-user-id'")
+        print("  export ECOUNT_API_CERT_KEY='your-api-key'")
+        print("  export ECOUNT_COM_CODE='your-company-code'")
+        sys.exit(1)
+
+    # 명령행 인자 처리
+    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+
+    if mode == "login":
+        # 로그인만 테스트
+        print("=" * 80)
+        print("이카운트 로그인 테스트")
+        print("=" * 80)
+        try:
+            result = login_ecount(
+                com_code=COM_CODE,
+                user_id=USER_ID,
+                api_cert_key=API_CERT_KEY,
+                lan_type=LAN_TYPE,
+                zone=ZONE,
+                test=USE_TEST_SERVER,
+            )
+
+            # SESSION_ID 추출
+            data = result.get("Data", {}) or {}
+            datas = data.get("Datas", {}) or {}
+            session_id = datas.get("SESSION_ID")
+
+            if session_id:
+                print(f"\n✅ 로그인 성공")
+                print(f"SESSION_ID: {session_id}")
+            else:
+                print("\n❌ SESSION_ID를 찾을 수 없습니다. 응답 구조를 확인하세요.")
+
+        except Exception as e:
+            print(f"\n❌ 로그인 실패: {e}")
+
+    elif mode == "convert":
+        # 엑셀 변환만 수행
+        print("=" * 80)
+        print("이지어드민 엑셀 변환")
+        print("=" * 80)
+        from excel_converter import process_ezadmin_to_ecount, save_to_excel
+        try:
+            result = process_ezadmin_to_ecount()
+            save_to_excel(result, "output_ecount.xlsx")
+            print(f"\n✅ 변환 완료:")
+            print(f"  - 판매: {len(result['sales'])}건")
+            print(f"  - 매입: {len(result['purchase'])}건")
+            print(f"  - 매입전표: {len(result['voucher'])}건")
+        except Exception as e:
+            print(f"\n❌ 변환 실패: {e}")
+
+    else:
+        # 통합 처리 (기본)
+        try:
+            results = process_and_upload()
+
+            # 최종 요약
+            print("\n" + "=" * 80)
+            print("처리 결과 요약")
+            print("=" * 80)
+
+            if results["excel_conversion"] and results["excel_conversion"]["success"]:
+                print(f"✅ 엑셀 변환: 성공")
+
+            if results["login"] and results["login"]["success"]:
+                print(f"✅ 로그인: 성공")
+
+            if results["sales_upload"]:
+                if results["sales_upload"]["success"]:
+                    print(f"✅ 판매 업로드: {results['sales_upload']['success_count']}건 성공")
+                else:
+                    print(f"❌ 판매 업로드: 실패")
+
+            if results["purchase_upload"]:
+                if results["purchase_upload"]["success"]:
+                    print(f"✅ 구매 업로드: {results['purchase_upload']['success_count']}건 성공")
+                else:
+                    print(f"❌ 구매 업로드: 실패")
+
+        except Exception as e:
+            print(f"\n❌ 처리 실패: {e}")
+            sys.exit(1)
