@@ -33,7 +33,7 @@ except ImportError:
 # ===== 설정 =====
 DATA_DIR = "./data"
 RATES_YAML = "rates.yml"
-BRAND_KEYWORDS = ["딸로", "닥터시드", "테르스"]
+BRAND_KEYWORDS = ["딸로", "닥터시드", "테르스", "에이더"]
 FIXED_WAREHOUSE_CODE = "200"
 
 
@@ -72,15 +72,32 @@ def read_excel_auto(path: str) -> pd.DataFrame:
 
 
 def extract_brand(seller_name: str, product_name: str) -> str:
+    """
+    판매처와 상품명으로부터 브랜드(프로젝트) 추출
+
+    - 일반적으로 판매처 이름의 첫 단어를 브랜드로 사용
+    - 브라이즈 판매처의 경우 상품명에서 브랜드 키워드 검색
+    - 에이더의 경우: 상품명이 "5자리 알파벳 + 2자리 숫자"로 시작하면 에이더로 인식
+    """
     seller_name = to_str(seller_name).strip()
     product_name = to_str(product_name).strip()
     base = seller_name.split(" ")[0] if seller_name else ""
     brand = base.split("(")[0] if base else ""
+
     if brand == "브라이즈":
+        # 1. 먼저 일반 키워드로 매칭 시도
         for kw in BRAND_KEYWORDS:
             if kw and kw in product_name:
                 brand = kw
                 break
+
+        # 2. 키워드 매칭 실패 시 에이더 정규식 패턴 체크
+        if brand == "브라이즈":
+            # 에이더 패턴: 5자리 알파벳 + 2자리 숫자로 시작
+            aider_pattern = re.compile(r'^[A-Za-z]{5}\d{2}')
+            if aider_pattern.match(product_name):
+                brand = "에이더"
+
     return brand if brand else "브랜드미상"
 
 
