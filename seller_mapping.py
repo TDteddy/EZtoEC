@@ -5,27 +5,41 @@
 - "지마켓", "G마켓", "gmarket" → "G마켓"
 - "카카오", "선물하기", "카카오선물하기" → "카카오선물하기"
 
-SQLite 기반 DB로 매핑 정보 관리
+MySQL 기반 DB로 매핑 정보 관리
 """
 
-import sqlite3
+import mysql.connector
+from mysql.connector import Error
 import os
 from typing import List, Dict, Optional, Tuple
+from dotenv import load_dotenv
 
+# Load environment variables
+load_dotenv()
 
 # ===== 설정 =====
-DB_PATH = "seller_mapping.db"
+DB_HOST = os.environ.get("DB_HOST", "localhost")
+DB_USER = os.environ.get("DB_USER", "root")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
+DB_NAME = os.environ.get("DB_NAME", "seller_mapping")
 
 
 class SellerMappingDB:
     """판매처 이름 매핑 관리 클래스"""
 
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, host: str = DB_HOST, user: str = DB_USER,
+                 password: str = DB_PASSWORD, database: str = DB_NAME):
         """
         Args:
-            db_path: SQLite DB 파일 경로
+            host: MySQL 호스트
+            user: MySQL 사용자
+            password: MySQL 비밀번호
+            database: 데이터베이스 이름
         """
-        self.db_path = db_path
+        self.host = host
+        self.user = user
+        self.password = password
+        self.database = database
         self.conn = None
         self.cursor = None
 
@@ -39,10 +53,24 @@ class SellerMappingDB:
         self.close()
 
     def connect(self):
-        """DB 연결"""
-        self.conn = sqlite3.connect(self.db_path)
-        self.conn.row_factory = sqlite3.Row  # 딕셔너리 형태로 결과 반환
-        self.cursor = self.conn.cursor()
+        """DB 연결 및 데이터베이스 자동 생성"""
+        try:
+            # 먼저 DB 없이 연결하여 데이터베이스 생성
+            self.conn = mysql.connector.connect(
+                host=self.host,
+                user=self.user,
+                password=self.password
+            )
+            self.cursor = self.conn.cursor(dictionary=True)
+
+            # 데이터베이스가 없으면 생성
+            self.cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+            self.cursor.execute(f"USE {self.database}")
+
+            print(f"✅ 데이터베이스 연결: {self.database}")
+        except Error as e:
+            print(f"❌ DB 연결 실패: {e}")
+            raise
 
     def close(self):
         """DB 연결 종료"""
@@ -63,19 +91,18 @@ class SellerMappingDB:
         """
         create_table_sql = """
         CREATE TABLE IF NOT EXISTS seller_mapping (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            alias TEXT NOT NULL UNIQUE,
-            standard_name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_alias ON seller_mapping(alias);
-        CREATE INDEX IF NOT EXISTS idx_standard ON seller_mapping(standard_name);
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            alias VARCHAR(255) NOT NULL UNIQUE,
+            standard_name VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_alias (alias),
+            INDEX idx_standard (standard_name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """
 
-        self.cursor.executescript(create_table_sql)
+        self.cursor.execute(create_table_sql)
         self.conn.commit()
-        print(f"✅ DB 초기화 완료: {self.db_path}")
+        print(f"✅ DB 초기화 완료: {self.database}")
 
     def add_mapping(self, alias: str, standard_name: str) -> bool:
         """
@@ -90,13 +117,13 @@ class SellerMappingDB:
         """
         try:
             self.cursor.execute(
-                "INSERT INTO seller_mapping (alias, standard_name) VALUES (?, ?)",
+                "INSERT INTO seller_mapping (alias, standard_name) VALUES (%s, %s)",
                 (alias.strip(), standard_name.strip())
             )
             self.conn.commit()
             print(f"✅ 매핑 추가: '{alias}' → '{standard_name}'")
             return True
-        except sqlite3.IntegrityError:
+        except mysql.connector.IntegrityError:
             print(f"⚠️ 이미 존재하는 별칭: '{alias}'")
             return False
         except Exception as e:
@@ -140,7 +167,7 @@ class SellerMappingDB:
             표준 이름 (없으면 None)
         """
         self.cursor.execute(
-            "SELECT standard_name FROM seller_mapping WHERE alias = ?",
+            "SELECT standard_name FROM seller_mapping WHERE alias = %s",
             (alias.strip(),)
         )
         row = self.cursor.fetchone()
@@ -172,7 +199,7 @@ class SellerMappingDB:
         """
         try:
             self.cursor.execute(
-                "UPDATE seller_mapping SET standard_name = ? WHERE alias = ?",
+                "UPDATE seller_mapping SET standard_name = %s WHERE alias = %s",
                 (new_standard_name.strip(), alias.strip())
             )
             self.conn.commit()
@@ -199,7 +226,7 @@ class SellerMappingDB:
         """
         try:
             self.cursor.execute(
-                "DELETE FROM seller_mapping WHERE alias = ?",
+                "DELETE FROM seller_mapping WHERE alias = %s",
                 (alias.strip(),)
             )
             self.conn.commit()
@@ -247,6 +274,101 @@ class SellerMappingDB:
             groups[standard].append(alias)
 
         return groups
+
+    def get_all_standard_names(self) -> List[str]:
+        """
+        모든 표준 이름 조회 (중복 제거)
+
+        Returns:
+            표준 이름 리스트
+        """
+        self.cursor.execute(
+            "SELECT DISTINCT standard_name FROM seller_mapping ORDER BY standard_name"
+        )
+        return [row["standard_name"] for row in self.cursor.fetchall()]
+
+    def find_similar_with_gpt(self, seller_name: str, threshold: float = 0.7) -> Optional[Dict[str, any]]:
+        """
+        GPT API를 사용하여 오타 교정 (수동발주 케이스용)
+
+        Args:
+            seller_name: 매칭할 판매처 이름
+            threshold: 신뢰도 임계값 (0.0 ~ 1.0)
+
+        Returns:
+            {
+                "original": 원본 이름,
+                "matched": 매칭된 표준 이름,
+                "confidence": 신뢰도 (0.0 ~ 1.0),
+                "requires_manual": 수동 수정 필요 여부
+            }
+            매칭 실패 시 None
+        """
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+            # DB에서 모든 표준 이름 가져오기
+            standard_names = self.get_all_standard_names()
+
+            if not standard_names:
+                return None
+
+            # GPT에게 가장 유사한 이름 찾기 요청
+            prompt = f"""다음 판매처 이름을 아래 목록 중 가장 유사한 이름으로 매칭해주세요.
+오타나 띄어쓰기 차이를 고려하여 가장 적절한 것을 찾아주세요.
+
+입력 이름: "{seller_name}"
+
+표준 이름 목록:
+{chr(10).join(f"- {name}" for name in standard_names)}
+
+응답 형식 (JSON):
+{{
+  "matched_name": "매칭된 표준 이름 (목록에 없으면 null)",
+  "confidence": 0.0~1.0 사이의 신뢰도,
+  "reason": "매칭 이유 간단 설명"
+}}
+
+주의: matched_name은 반드시 위 목록에 있는 이름 중 하나여야 합니다. 확신이 없으면 confidence를 낮게 설정하세요."""
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "당신은 판매처 이름 매칭 전문가입니다. 주어진 목록에서만 선택해야 합니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+
+            import json
+            result = json.loads(response.choices[0].message.content)
+
+            matched_name = result.get("matched_name")
+            confidence = float(result.get("confidence", 0.0))
+
+            if matched_name and confidence >= threshold:
+                return {
+                    "original": seller_name,
+                    "matched": matched_name,
+                    "confidence": confidence,
+                    "requires_manual": False,
+                    "reason": result.get("reason", "")
+                }
+            else:
+                return {
+                    "original": seller_name,
+                    "matched": None,
+                    "confidence": confidence,
+                    "requires_manual": True,
+                    "reason": result.get("reason", "신뢰도가 낮아 수동 확인이 필요합니다.")
+                }
+
+        except Exception as e:
+            print(f"⚠️ GPT 매칭 실패: {e}")
+            return None
 
     def export_to_csv(self, csv_path: str = "seller_mapping.csv") -> bool:
         """

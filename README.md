@@ -29,10 +29,17 @@ cp .env.example .env
 
 또는 환경 변수를 직접 설정할 수 있습니다:
 ```bash
+# OpenAI & Ecount API
 export OPENAI_API_KEY="your-api-key-here"
 export ECOUNT_USER_ID="your-user-id"
 export ECOUNT_API_CERT_KEY="your-api-cert-key"
 export ECOUNT_COM_CODE="your-company-code"
+
+# MySQL Database
+export DB_HOST="localhost"
+export DB_USER="root"
+export DB_PASSWORD="your-mysql-password"
+export DB_NAME="seller_mapping"
 ```
 
 ## 사용 방법
@@ -51,8 +58,16 @@ python gpt_client.py
 
 이지어드민 원천데이터에 같은 판매처가 다른 이름으로 나오는 경우 (예: "지마켓", "G마켓"), 판매처 매핑 DB를 사용하여 통일할 수 있습니다.
 
+**MySQL 데이터베이스 사용**: SQLite 대신 MySQL을 사용하여 판매처 매핑을 관리합니다. 데이터베이스가 없으면 자동으로 생성됩니다.
+
 #### DB 초기화 및 기본 매핑 등록
 ```bash
+# 환경 변수에 MySQL 접속 정보 설정 (.env 파일)
+# DB_HOST=localhost
+# DB_USER=root
+# DB_PASSWORD=your-password
+# DB_NAME=seller_mapping
+
 # 기본 매핑과 함께 DB 초기화 (G마켓, 카카오선물하기, 스마트스토어, 쿠팡 등)
 python seller_mapping.py init
 ```
@@ -89,6 +104,37 @@ with SellerMappingDB() as db:
 ```
 
 **자동 적용:** 판매처 매핑 DB가 있으면 엑셀 변환 시 자동으로 판매처 이름이 정규화됩니다.
+
+#### GPT 기반 오타 교정 및 웹 에디터
+
+**수동발주 케이스 전용**: 코드10에 있는 거래처/판매처가 DB에 없을 때:
+
+1. **DB 매칭 우선**: DB에 있는 판매처는 자동으로 매핑
+2. **GPT 오타 교정**: DB에 없는 판매처는 GPT API가 유사한 이름 추천 (신뢰도 70% 이상)
+3. **웹 에디터**: GPT가 낮은 신뢰도로 판단하거나 매칭하지 못한 판매처는 웹 인터페이스에서 수동 매핑
+
+```python
+from seller_mapping import SellerMappingDB
+
+with SellerMappingDB() as db:
+    # GPT로 오타 교정 시도
+    result = db.find_similar_with_gpt("지마켓")
+
+    if result and not result['requires_manual']:
+        # 자동 매핑 성공
+        print(f"매칭됨: {result['matched']} (신뢰도: {result['confidence']})")
+    else:
+        # 수동 매핑 필요 - 웹 에디터 사용
+        from seller_editor import start_editor
+        start_editor([result], port=5000)
+```
+
+**웹 에디터 사용:**
+```bash
+# 매핑이 필요한 판매처가 있을 때 자동으로 웹 에디터가 열립니다
+# 브라우저에서 http://localhost:5000 접속하여 수동 매핑
+python seller_editor.py
+```
 
 ### 4. 엑셀 변환 (이지어드민 → 이카운트)
 
@@ -223,9 +269,9 @@ EZtoEC/
 ├── main.py                  # 통합 메인 파일 (로그인/판매/구매 API + 통합 실행)
 ├── gpt_client.py            # OpenAI GPT API 클라이언트
 ├── excel_converter.py       # 엑셀 변환 모듈
-├── seller_mapping.py        # 판매처 이름 통일 관리 (SQLite DB)
+├── seller_mapping.py        # 판매처 이름 통일 관리 (MySQL DB)
+├── seller_editor.py         # 판매처 수동 매핑 웹 에디터 (Flask)
 ├── rates.yml                # 운송료/판매수수료 요율 설정
-├── seller_mapping.db        # 판매처 매핑 DB (자동 생성)
 ├── requirements.txt         # 의존성 패키지
 ├── .env.example             # 환경 변수 예제
 ├── .gitignore               # Git 제외 파일
