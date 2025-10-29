@@ -337,9 +337,8 @@ EZtoEC/
 ├── data/                    # 이지어드민 엑셀 파일 저장 폴더
 ├── main.py                  # 메인 진입점 (완전한 워크플로우)
 ├── excel_converter.py       # 엑셀 변환 + 데이터 검증
-├── seller_mapping.py        # 판매처 매핑 DB 관리 (MySQL)
+├── seller_mapping.py        # 판매처 매핑 DB 관리 (MySQL + GPT 통합)
 ├── seller_editor.py         # 판매처 수동 매핑 웹 에디터 (Flask)
-├── gpt_client.py            # OpenAI GPT API 클라이언트
 ├── rates.yml                # 운송료/판매수수료 요율 설정
 ├── requirements.txt         # 의존성 패키지
 ├── .env.example             # 환경 변수 예제
