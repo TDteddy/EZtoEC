@@ -115,9 +115,11 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
     판매 DataFrame을 이카운트 API 형식으로 변환
 
+    전표 묶음 순번: 같은 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
+
     필드 매핑:
     - IO_DATE: 일자
-    - UPLOAD_SER_NO: 순번
+    - UPLOAD_SER_NO: 순번 (자동 할당: 브랜드 + 판매채널 기준)
     - PJT_CD: 브랜드 (프로젝트)
     - SITE: 판매채널 (부서)
     - CUST_DES: 거래처명
@@ -138,12 +140,20 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     - ADD_TXT_02: 배송메모
     - ADD_TXT_05: 주문상세번호
     """
+    if sales_df.empty:
+        return []
+
+    # 전표 묶음 순번 자동 할당: 브랜드 + 판매채널 기준으로 그룹화
+    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
+    sales_df_copy = sales_df.copy()
+    sales_df_copy["전표묶음순번"] = sales_df_copy.groupby(["브랜드", "판매채널"]).ngroup() + 1
+
     sale_list = []
 
-    for _, row in sales_df.iterrows():
+    for _, row in sales_df_copy.iterrows():
         bulk_data = {
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": safe_str(row.get("순번")),
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
             "CUST": "",  # 거래처코드 (없음)
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
@@ -199,9 +209,11 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     """
     매입 DataFrame을 이카운트 API 형식으로 변환
 
+    전표 묶음 순번: 같은 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
+
     필드 매핑:
     - IO_DATE: 일자
-    - UPLOAD_SER_NO: 순번
+    - UPLOAD_SER_NO: 순번 (자동 할당: 브랜드 + 판매채널 기준)
     - PJT_CD: 브랜드 (프로젝트)
     - SITE: 판매채널 (부서)
     - CUST_DES: 거래처명
@@ -213,14 +225,22 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     - VAT_AMT: 부가세
     - REMARKS: 적요
     """
+    if purchase_df.empty:
+        return []
+
+    # 전표 묶음 순번 자동 할당: 브랜드 + 판매채널 기준으로 그룹화
+    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
+    purchase_df_copy = purchase_df.copy()
+    purchase_df_copy["전표묶음순번"] = purchase_df_copy.groupby(["브랜드", "판매채널"]).ngroup() + 1
+
     purchase_list = []
 
-    for _, row in purchase_df.iterrows():
+    for _, row in purchase_df_copy.iterrows():
         bulk_data = {
             "ORD_DATE": "",  # 발주일자
             "ORD_NO": "",  # 발주번호
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": safe_str(row.get("순번")),
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
             "CUST": "",  # 거래처코드
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
