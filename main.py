@@ -405,10 +405,10 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         "purchase_upload": None
     }
 
-    # ===== 1단계: 엑셀 변환 =====
-    print("\n[1단계] 이지어드민 엑셀 파일 변환 중...")
+    # ===== 1단계: 엑셀 변환 및 데이터 검증 =====
+    print("\n[1단계] 이지어드민 엑셀 파일 변환 및 데이터 검증 중...")
     try:
-        excel_result = process_ezadmin_to_ecount()
+        excel_result, pending_mappings = process_ezadmin_to_ecount()
         sales_df = excel_result["sales"]
         purchase_df = excel_result["purchase"]
         voucher_df = excel_result["voucher"]
@@ -425,6 +425,55 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         print(f"  - 매입: {len(purchase_df)}건")
         print(f"  - 매입전표: {len(voucher_df)}건")
 
+        # ===== 1-1단계: 정제 불가 데이터 처리 (웹 에디터) =====
+        if pending_mappings:
+            print("\n" + "=" * 80)
+            print(f"⚠️  [데이터 검증] 수동 매핑이 필요한 판매처: {len(pending_mappings)}건")
+            print("=" * 80)
+
+            unique_sellers = {}
+            for p in pending_mappings:
+                original = p.get("original", "")
+                if original not in unique_sellers:
+                    unique_sellers[original] = p
+
+            for seller, info in unique_sellers.items():
+                confidence = info.get("confidence", 0)
+                suggestion = info.get("gpt_suggestion")
+                print(f"  - {seller}")
+                if suggestion:
+                    print(f"    └ GPT 추천: {suggestion} (신뢰도: {confidence:.0%})")
+
+            print("\n🌐 웹 에디터를 실행합니다...")
+            print("   브라우저에서 http://localhost:5000 접속하여 판매처 이름을 매핑하세요.\n")
+
+            try:
+                from seller_editor import start_editor
+                import threading
+
+                # 웹 에디터를 백그라운드 스레드로 실행
+                editor_thread = threading.Thread(
+                    target=start_editor,
+                    args=(list(unique_sellers.values()),),
+                    kwargs={"port": 5000},
+                    daemon=True
+                )
+                editor_thread.start()
+
+                # 사용자가 매핑을 완료할 때까지 대기
+                print("⏳ 매핑 완료 후 Enter를 눌러 계속하세요...")
+                input()
+
+                print("✅ 웹 에디터 완료. 계속 진행합니다...\n")
+
+            except KeyboardInterrupt:
+                print("\n⚠️  사용자가 중단했습니다.")
+                return results
+            except Exception as e:
+                print(f"⚠️  웹 에디터 실행 실패: {e}")
+                print("   수동으로 seller_mapping.py를 사용하여 매핑을 추가하세요.")
+                return results
+
         # 선택적: 엑셀 파일로 저장
         if save_excel:
             save_to_excel(excel_result, "output_ecount.xlsx")
@@ -432,6 +481,8 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
 
     except Exception as e:
         print(f"❌ 엑셀 변환 실패: {e}")
+        import traceback
+        traceback.print_exc()
         results["excel_conversion"] = {"success": False, "error": str(e)}
         return results
 
@@ -618,12 +669,17 @@ if __name__ == "__main__":
         print("=" * 80)
         from excel_converter import process_ezadmin_to_ecount, save_to_excel
         try:
-            result = process_ezadmin_to_ecount()
+            result, pending_mappings = process_ezadmin_to_ecount()
             save_to_excel(result, "output_ecount.xlsx")
             print(f"\n✅ 변환 완료:")
             print(f"  - 판매: {len(result['sales'])}건")
             print(f"  - 매입: {len(result['purchase'])}건")
             print(f"  - 매입전표: {len(result['voucher'])}건")
+
+            if pending_mappings:
+                print(f"\n⚠️  수동 매핑 필요: {len(pending_mappings)}건")
+                print("   python main.py 를 실행하여 웹 에디터로 매핑하세요.")
+
         except Exception as e:
             print(f"\n❌ 변환 실패: {e}")
 

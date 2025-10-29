@@ -148,6 +148,96 @@ def load_rate_book_from_yaml(path: str) -> dict:
 
 
 # ===== 핵심 변환 =====
+def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] = None) -> Tuple[pd.DataFrame, List[Dict]]:
+    """
+    판매처 이름 검증 및 교정 (수동발주 케이스 전용)
+
+    Args:
+        df: 변환된 DataFrame (거래처명 컬럼 포함)
+        pending_mappings: 기존 정제 불가 목록 (선택)
+
+    Returns:
+        (교정된 DataFrame, 정제 불가 데이터 리스트)
+    """
+    if pending_mappings is None:
+        pending_mappings = []
+
+    if not SELLER_MAPPING_AVAILABLE:
+        print("[WARN] seller_mapping을 사용할 수 없습니다. 검증을 건너뜁니다.")
+        return df, pending_mappings
+
+    # 수동발주 케이스 필터링
+    is_manual = df.apply(lambda row: "수동발주" in to_str(row.get("판매처", "")), axis=1)
+    manual_df = df[is_manual].copy()
+
+    if manual_df.empty:
+        return df, pending_mappings
+
+    print(f"\n[검증] 수동발주 데이터 {len(manual_df)}건 검증 중...")
+
+    with SellerMappingDB() as db:
+        all_standard_names = set(db.get_all_standard_names())
+
+        for idx, row in manual_df.iterrows():
+            seller_name = to_str(row.get("거래처명", "")).strip()
+
+            if not seller_name:
+                print(f"  ⚠️  [{idx}] 거래처명이 비어있습니다")
+                pending_mappings.append({
+                    "original": seller_name or "(빈 값)",
+                    "gpt_suggestion": None,
+                    "confidence": 0.0,
+                    "reason": "거래처명이 비어있습니다",
+                    "row_index": idx
+                })
+                continue
+
+            # 1. DB에 이미 있는 경우 PASS
+            if seller_name in all_standard_names or db.get_standard_name(seller_name):
+                print(f"  ✅ [{idx}] {seller_name} - DB 매칭")
+                continue
+
+            # 2. GPT로 오타 교정 시도
+            print(f"  🤖 [{idx}] {seller_name} - GPT 교정 시도 중...")
+            gpt_result = db.find_similar_with_gpt(seller_name, threshold=0.7)
+
+            if gpt_result:
+                if gpt_result.get("requires_manual"):
+                    # 수동 매핑 필요
+                    print(f"  ⚠️  [{idx}] {seller_name} - 수동 매핑 필요 (신뢰도: {gpt_result.get('confidence', 0):.0%})")
+                    gpt_result["row_index"] = idx
+                    pending_mappings.append(gpt_result)
+                else:
+                    # 자동 교정 성공
+                    matched = gpt_result.get("matched")
+                    confidence = gpt_result.get("confidence", 0)
+                    print(f"  ✅ [{idx}] {seller_name} → {matched} (신뢰도: {confidence:.0%})")
+
+                    # DataFrame 업데이트
+                    df.at[idx, "거래처명"] = matched
+
+                    # DB에 자동으로 매핑 추가
+                    db.add_mapping(seller_name, matched)
+            else:
+                # GPT 실패
+                print(f"  ❌ [{idx}] {seller_name} - GPT 매칭 실패")
+                pending_mappings.append({
+                    "original": seller_name,
+                    "gpt_suggestion": None,
+                    "confidence": 0.0,
+                    "reason": "GPT 매칭 실패",
+                    "row_index": idx
+                })
+
+    unique_pending = len(set(p["original"] for p in pending_mappings))
+    if pending_mappings:
+        print(f"\n⚠️  수동 매핑 필요: {unique_pending}건")
+    else:
+        print(f"\n✅ 모든 데이터 검증 완료")
+
+    return df, pending_mappings
+
+
 def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     이지어드민 엑셀 파일을 읽어서 판매/매입 DataFrame으로 변환
@@ -442,21 +532,26 @@ def split_by_project(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
 
 # ===== 메인 처리 함수 (DataFrame 반환) =====
 def process_ezadmin_to_ecount(data_dir: str = DATA_DIR,
-                               rates_yaml: str = RATES_YAML) -> Dict[str, any]:
+                               rates_yaml: str = RATES_YAML,
+                               validate_sellers: bool = True) -> Tuple[Dict[str, any], List[Dict]]:
     """
     이지어드민 데이터를 이카운트 양식으로 변환
 
     Args:
         data_dir: 이지어드민 엑셀 파일들이 있는 디렉토리
         rates_yaml: 요율 설정 YAML 파일 경로
+        validate_sellers: 판매처 검증 여부 (수동발주 케이스)
 
     Returns:
-        {
-            "sales": 전체 판매 DataFrame,
-            "purchase": 전체 매입 DataFrame,
-            "voucher": 전체 매입전표 DataFrame,
-            "by_project": {브랜드: {sales, purchase, voucher}}
-        }
+        (
+            {
+                "sales": 전체 판매 DataFrame,
+                "purchase": 전체 매입 DataFrame,
+                "voucher": 전체 매입전표 DataFrame,
+                "by_project": {브랜드: {sales, purchase, voucher}}
+            },
+            pending_mappings: 정제 불가 데이터 리스트
+        )
     """
     os.makedirs(data_dir, exist_ok=True)
     print("[INFO] CWD:", os.getcwd())
@@ -492,20 +587,31 @@ def process_ezadmin_to_ecount(data_dir: str = DATA_DIR,
     voucher_df = build_voucher_from_sales(sales_merged, rate_book) if not sales_merged.empty else pd.DataFrame()
     print(f"[INFO] 매입전표 생성: {len(voucher_df)}건")
 
+    # 데이터 검증 및 정제 (수동발주 케이스)
+    pending_mappings = []
+    if validate_sellers and not sales_merged.empty:
+        print("\n" + "=" * 80)
+        print("데이터 검증 시작 (수동발주 케이스)")
+        print("=" * 80)
+        sales_merged, pending_mappings = validate_and_correct_sellers(sales_merged, pending_mappings)
+
+        if not purchase_merged.empty:
+            purchase_merged, pending_mappings = validate_and_correct_sellers(purchase_merged, pending_mappings)
+
     # 프로젝트별 분리
     by_project = split_by_project(sales_merged, purchase_merged, voucher_df)
 
     total_sales = len(sales_merged)
     total_purchase = len(purchase_merged)
     total_vouchers = len(voucher_df)
-    print(f"✅ 처리 완료: 판매 {total_sales}건, 매입 {total_purchase}건, 매입전표 {total_vouchers}건")
+    print(f"\n✅ 처리 완료: 판매 {total_sales}건, 매입 {total_purchase}건, 매입전표 {total_vouchers}건")
 
     return {
         "sales": sales_merged,
         "purchase": purchase_merged,
         "voucher": voucher_df,
         "by_project": by_project
-    }
+    }, pending_mappings
 
 
 # ===== 파일 저장 함수 (선택적) =====
@@ -557,7 +663,21 @@ def save_to_excel(result: Dict[str, any], output_file: str = "output_ecount.xlsx
 # ===== 실행부 =====
 if __name__ == "__main__":
     # 데이터 처리
-    result = process_ezadmin_to_ecount()
+    result, pending_mappings = process_ezadmin_to_ecount()
+
+    # 정제 불가 데이터가 있으면 웹 에디터 실행
+    if pending_mappings:
+        print("\n" + "=" * 80)
+        print(f"⚠️  수동 매핑이 필요한 판매처: {len(pending_mappings)}건")
+        print("=" * 80)
+        for p in pending_mappings:
+            print(f"  - {p['original']}")
+
+        print("\n웹 에디터를 실행하려면 다음 명령을 사용하세요:")
+        print("  python main.py")
+        print("\n또는 직접 웹 에디터 실행:")
+        print("  from seller_editor import start_editor")
+        print("  start_editor(pending_mappings)")
 
     # 파일로 저장 (선택적)
     if result["sales"].empty and result["purchase"].empty and result["voucher"].empty:
