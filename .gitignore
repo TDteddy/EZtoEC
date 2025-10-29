@@ -48,3 +48,6 @@ Thumbs.db
 # Output files
 output_*.xlsx
 seller_mapping.csv
+
+# Data directory (test and actual data files)
+data/
