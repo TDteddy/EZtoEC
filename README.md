@@ -47,7 +47,50 @@ python main.py
 python gpt_client.py
 ```
 
-### 3. 엑셀 변환 (이지어드민 → 이카운트)
+### 3. 판매처 이름 통일 (선택 사항)
+
+이지어드민 원천데이터에 같은 판매처가 다른 이름으로 나오는 경우 (예: "지마켓", "G마켓"), 판매처 매핑 DB를 사용하여 통일할 수 있습니다.
+
+#### DB 초기화 및 기본 매핑 등록
+```bash
+# 기본 매핑과 함께 DB 초기화 (G마켓, 카카오선물하기, 스마트스토어, 쿠팡 등)
+python seller_mapping.py init
+```
+
+#### CLI 메뉴로 관리
+```bash
+# 대화형 메뉴 실행
+python seller_mapping.py
+
+# 사용 가능한 기능:
+# 1. DB 초기화
+# 2. 매핑 추가 (개별)
+# 3. 매핑 추가 (그룹)
+# 4. 전체 매핑 보기
+# 5. 매핑 테스트
+# 6. CSV로 내보내기
+# 7. CSV에서 가져오기
+```
+
+#### 프로그래밍 방식 사용
+```python
+from seller_mapping import SellerMappingDB
+
+with SellerMappingDB() as db:
+    # 그룹으로 추가 (여러 별칭 → 하나의 표준 이름)
+    db.add_group(
+        aliases=["지마켓", "G마켓", "gmarket"],
+        standard_name="G마켓"
+    )
+
+    # 매핑 테스트
+    print(db.normalize_name("지마켓"))  # → "G마켓"
+    print(db.normalize_name("gmarket"))  # → "G마켓"
+```
+
+**자동 적용:** 판매처 매핑 DB가 있으면 엑셀 변환 시 자동으로 판매처 이름이 정규화됩니다.
+
+### 4. 엑셀 변환 (이지어드민 → 이카운트)
 
 #### 방법 1: 독립 실행
 ```bash
@@ -94,7 +137,7 @@ for project, data in result["by_project"].items():
 save_to_excel(result, "output_ecount.xlsx")
 ```
 
-### 4. 이카운트 API 업로드 (통합)
+### 5. 이카운트 API 업로드 (통합)
 
 이지어드민 엑셀 변환 → 이카운트 API 업로드를 한 번에 실행:
 
@@ -180,7 +223,9 @@ EZtoEC/
 ├── main.py                  # 통합 메인 파일 (로그인/판매/구매 API + 통합 실행)
 ├── gpt_client.py            # OpenAI GPT API 클라이언트
 ├── excel_converter.py       # 엑셀 변환 모듈
+├── seller_mapping.py        # 판매처 이름 통일 관리 (SQLite DB)
 ├── rates.yml                # 운송료/판매수수료 요율 설정
+├── seller_mapping.db        # 판매처 매핑 DB (자동 생성)
 ├── requirements.txt         # 의존성 패키지
 ├── .env.example             # 환경 변수 예제
 ├── .gitignore               # Git 제외 파일

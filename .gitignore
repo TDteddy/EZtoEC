@@ -39,3 +39,12 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Output files
+output_*.xlsx
+seller_mapping.csv

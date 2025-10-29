@@ -9,6 +9,7 @@
   2) '구매_데이터'
   3) '매입_데이터_운반비+수수료'
 - 매입전표 계산에 쓰는 프로젝트×부서 요율은 rates.yml에서 읽습니다.
+- 판매처 이름은 seller_mapping.db를 통해 정규화됩니다.
 """
 
 import os
@@ -20,6 +21,14 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 import yaml
+
+# 판매처 매핑 DB import
+try:
+    from seller_mapping import SellerMappingDB
+    SELLER_MAPPING_AVAILABLE = True
+except ImportError:
+    SELLER_MAPPING_AVAILABLE = False
+    print("[WARN] seller_mapping.py를 찾을 수 없습니다. 판매처 이름 정규화가 비활성화됩니다.")
 
 # ===== 설정 =====
 DATA_DIR = "./data"
@@ -176,14 +185,27 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         def _partner_name(row):
             seller = to_str(row.get("판매처"))
             code2 = to_str(row.get("코드10"))
+
+            # 기존 로직
             if "수동발주" in seller:
-                return code2
-            if "(" in seller and ")" in seller:
+                result = code2
+            elif "(" in seller and ")" in seller:
                 try:
-                    return seller.split("(")[1].split(")")[0]
+                    result = seller.split("(")[1].split(")")[0]
                 except Exception:
-                    return seller
-            return seller
+                    result = seller
+            else:
+                result = seller
+
+            # 판매처 이름 정규화 (매핑 DB 사용)
+            if SELLER_MAPPING_AVAILABLE:
+                try:
+                    with SellerMappingDB() as db:
+                        result = db.normalize_name(result)
+                except Exception:
+                    pass  # 에러 발생 시 원본 그대로 사용
+
+            return result
 
         df["거래처명"] = df.apply(_partner_name, axis=1)
 
