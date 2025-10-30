@@ -53,7 +53,7 @@ class SellerMappingDB:
         self.close()
 
     def connect(self):
-        """DB 연결 및 데이터베이스 자동 생성"""
+        """DB 연결 및 데이터베이스/테이블 자동 생성"""
         try:
             # 먼저 DB 없이 연결하여 데이터베이스 생성
             self.conn = mysql.connector.connect(
@@ -67,10 +67,45 @@ class SellerMappingDB:
             self.cursor.execute(f"CREATE DATABASE IF NOT EXISTS {self.database} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
             self.cursor.execute(f"USE {self.database}")
 
+            # 테이블이 없으면 자동 생성
+            self._ensure_table_exists()
+
             print(f"✅ 데이터베이스 연결: {self.database}")
         except Error as e:
             print(f"❌ DB 연결 실패: {e}")
             raise
+
+    def _ensure_table_exists(self):
+        """테이블 존재 확인 및 자동 생성"""
+        try:
+            # 테이블 존재 확인
+            self.cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = 'seller_mapping'
+            """, (self.database,))
+
+            result = self.cursor.fetchone()
+
+            if result['count'] == 0:
+                # 테이블이 없으면 생성
+                print(f"[INFO] 테이블이 없습니다. 자동 생성 중...")
+                create_table_sql = """
+                CREATE TABLE seller_mapping (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    alias VARCHAR(255) NOT NULL UNIQUE,
+                    standard_name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_alias (alias),
+                    INDEX idx_standard (standard_name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """
+                self.cursor.execute(create_table_sql)
+                self.conn.commit()
+                print(f"✅ 테이블 생성 완료")
+        except Exception as e:
+            print(f"⚠️  테이블 확인/생성 중 오류: {e}")
+            # 치명적이지 않으므로 계속 진행
 
     def close(self):
         """DB 연결 종료"""
@@ -282,10 +317,14 @@ class SellerMappingDB:
         Returns:
             표준 이름 리스트
         """
-        self.cursor.execute(
-            "SELECT DISTINCT standard_name FROM seller_mapping ORDER BY standard_name"
-        )
-        return [row["standard_name"] for row in self.cursor.fetchall()]
+        try:
+            self.cursor.execute(
+                "SELECT DISTINCT standard_name FROM seller_mapping ORDER BY standard_name"
+            )
+            return [row["standard_name"] for row in self.cursor.fetchall()]
+        except Exception as e:
+            print(f"⚠️  표준 이름 조회 실패: {e}")
+            return []
 
     def find_similar_with_gpt(self, seller_name: str, threshold: float = 0.7) -> Optional[Dict[str, any]]:
         """
