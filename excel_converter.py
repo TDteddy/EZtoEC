@@ -291,16 +291,27 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         # 판매처 이름 추출 및 정규화 (DB 연결은 한 번만)
         def extract_partner_names(df_input):
-            """판매처 이름 추출 및 정규화"""
+            """
+            판매처 이름 추출 및 정규화
+
+            - 수동발주 케이스: 코드10 값을 그대로 사용 (DB normalization 제외)
+              → validate_and_correct_sellers()에서 전담 처리
+            - 기타 케이스: 추출 후 DB normalization 적용
+            """
             names = []
+            is_manual_orders = []  # 수동발주 여부 플래그
 
             for _, row in df_input.iterrows():
                 seller = to_str(row.get("판매처"))
                 code2 = to_str(row.get("코드10"))
 
+                # 수동발주 여부 확인
+                is_manual = "수동발주" in seller
+                is_manual_orders.append(is_manual)
+
                 # 기존 로직
-                if "수동발주" in seller:
-                    result = code2
+                if is_manual:
+                    result = code2  # 코드10 값 그대로 (검증은 나중에)
                 elif "(" in seller and ")" in seller:
                     try:
                         result = seller.split("(")[1].split(")")[0]
@@ -311,11 +322,19 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
                 names.append(result)
 
-            # DB 정규화 (한 번만 연결)
+            # DB 정규화 (수동발주가 아닌 케이스만)
             if SELLER_MAPPING_AVAILABLE:
                 try:
                     with SellerMappingDB() as db:
-                        names = [db.normalize_name(name) for name in names]
+                        normalized_names = []
+                        for i, name in enumerate(names):
+                            if is_manual_orders[i]:
+                                # 수동발주는 validate_and_correct_sellers에서 처리
+                                normalized_names.append(name)
+                            else:
+                                # 수동발주가 아닌 경우만 DB normalization
+                                normalized_names.append(db.normalize_name(name))
+                        names = normalized_names
                 except Exception:
                     pass  # 에러 발생 시 원본 그대로 사용
 
