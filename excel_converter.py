@@ -547,6 +547,10 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         return sales, purchase
 
+    except ValueError as e:
+        # ValueError는 사용자 데이터 문제 (코드10 빈 값 등)
+        # 상위로 전파하여 프로그램 중단
+        raise
     except Exception as e:
         print(f"❌ {file_path}: 오류 발생 - {e}")
         return pd.DataFrame(), pd.DataFrame()
