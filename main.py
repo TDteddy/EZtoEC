@@ -432,7 +432,7 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         # ===== 1-1단계: 정제 불가 데이터 처리 (웹 에디터) =====
         if pending_mappings:
             print("\n" + "=" * 80)
-            print(f"⚠️  [데이터 검증] 수동 매핑이 필요한 판매처: {len(pending_mappings)}건")
+            print(f"⚠️  [데이터 검증 실패] DB에 없는 판매처 발견: {len(pending_mappings)}건")
             print("=" * 80)
 
             unique_sellers = {}
@@ -448,6 +448,8 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
                 if suggestion:
                     print(f"    └ GPT 추천: {suggestion} (신뢰도: {confidence:.0%})")
 
+            print("\n❌ 업로드를 중단합니다.")
+            print("   DB에 없는 판매처가 포함된 데이터는 업로드할 수 없습니다.")
             print("\n🌐 웹 에디터를 실행합니다...")
             print("   브라우저에서 http://localhost:5000 접속하여 판매처 이름을 매핑하세요.\n")
 
@@ -465,18 +467,22 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
                 editor_thread.start()
 
                 # 사용자가 매핑을 완료할 때까지 대기
-                print("⏳ 매핑 완료 후 Enter를 눌러 계속하세요...")
+                print("⏳ 매핑 완료 후 Enter를 눌러 종료하세요...")
                 input()
 
-                print("✅ 웹 에디터 완료. 계속 진행합니다...\n")
+                print("\n✅ 매핑을 저장했습니다.")
+                print("   매핑을 완료한 후 프로그램을 다시 실행하세요:")
+                print("   $ python main.py\n")
 
             except KeyboardInterrupt:
                 print("\n⚠️  사용자가 중단했습니다.")
-                return results
             except Exception as e:
-                print(f"⚠️  웹 에디터 실행 실패: {e}")
+                print(f"\n⚠️  웹 에디터 실행 실패: {e}")
                 print("   수동으로 seller_mapping.py를 사용하여 매핑을 추가하세요.")
-                return results
+                print("   매핑 완료 후 프로그램을 다시 실행하세요.")
+
+            # 업로드 단계로 진행하지 않고 종료
+            return results
 
         # 선택적: 엑셀 파일로 저장
         if save_excel:
