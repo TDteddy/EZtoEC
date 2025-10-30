@@ -199,12 +199,24 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
         # 빈 값 처리
         for idx in empty_indices:
             print(f"  ⚠️  [{idx}] 거래처명이 비어있습니다")
+
+            # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+            row_data = df.loc[idx]
+            order_info = {
+                "주문번호": to_str(row_data.get("주문번호", "")),
+                "품목명": to_str(row_data.get("품목명", "")),
+                "수량": to_str(row_data.get("수량", "")),
+                "일자": to_str(row_data.get("일자", "")),
+                "브랜드": to_str(row_data.get("브랜드", ""))
+            }
+
             pending_mappings.append({
                 "original": "(빈 값)",
                 "gpt_suggestion": None,
                 "confidence": 0.0,
                 "reason": "거래처명이 비어있습니다",
-                "row_index": idx
+                "row_index": idx,
+                "order_info": order_info  # 원본 주문 정보 추가
             })
 
         # 2단계: DB 매칭 확인 (이미 있는 경우 PASS)
@@ -232,12 +244,23 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
 
                     # 모든 인덱스에 대해 pending_mappings에 추가
                     for idx in indices:
+                        # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+                        row_data = df.loc[idx]
+                        order_info = {
+                            "주문번호": to_str(row_data.get("주문번호", "")),
+                            "품목명": to_str(row_data.get("품목명", "")),
+                            "수량": to_str(row_data.get("수량", "")),
+                            "일자": to_str(row_data.get("일자", "")),
+                            "브랜드": to_str(row_data.get("브랜드", ""))
+                        }
+
                         pending_mappings.append({
                             "original": seller_name,
                             "gpt_suggestion": gpt_result.get("matched"),
                             "confidence": confidence,
                             "reason": gpt_result.get("reason", ""),
-                            "row_index": idx
+                            "row_index": idx,
+                            "order_info": order_info  # 원본 주문 정보 추가
                         })
                 else:
                     # 자동 교정 성공
@@ -257,12 +280,23 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
 
                 # 모든 인덱스에 대해 pending_mappings에 추가
                 for idx in indices:
+                    # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+                    row_data = df.loc[idx]
+                    order_info = {
+                        "주문번호": to_str(row_data.get("주문번호", "")),
+                        "품목명": to_str(row_data.get("품목명", "")),
+                        "수량": to_str(row_data.get("수량", "")),
+                        "일자": to_str(row_data.get("일자", "")),
+                        "브랜드": to_str(row_data.get("브랜드", ""))
+                    }
+
                     pending_mappings.append({
                         "original": seller_name,
                         "gpt_suggestion": None,
                         "confidence": 0.0,
                         "reason": "GPT 매칭 실패",
-                        "row_index": idx
+                        "row_index": idx,
+                        "order_info": order_info  # 원본 주문 정보 추가
                     })
 
     unique_pending = len(set(p["original"] for p in pending_mappings))

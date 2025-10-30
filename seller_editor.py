@@ -99,6 +99,31 @@ EDITOR_TEMPLATE = """
         .gpt-suggestion strong {
             color: #856404;
         }
+        .order-info {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .order-info-title {
+            font-weight: 600;
+            color: #1565C0;
+            margin-bottom: 8px;
+        }
+        .order-info-item {
+            display: flex;
+            padding: 4px 0;
+        }
+        .order-info-label {
+            font-weight: 600;
+            color: #424242;
+            min-width: 80px;
+        }
+        .order-info-value {
+            color: #616161;
+        }
         .form-group {
             margin-bottom: 15px;
         }
@@ -216,6 +241,42 @@ EDITOR_TEMPLATE = """
                     {% for item in pending_items %}
                     <div class="mapping-item">
                         <div class="original-name">{{ item.original }}</div>
+
+                        {% if item.order_info %}
+                        <div class="order-info">
+                            <div class="order-info-title">📦 주문 정보</div>
+                            {% if item.order_info.주문번호 %}
+                            <div class="order-info-item">
+                                <div class="order-info-label">주문번호:</div>
+                                <div class="order-info-value">{{ item.order_info.주문번호 }}</div>
+                            </div>
+                            {% endif %}
+                            {% if item.order_info.품목명 %}
+                            <div class="order-info-item">
+                                <div class="order-info-label">품목명:</div>
+                                <div class="order-info-value">{{ item.order_info.품목명 }}</div>
+                            </div>
+                            {% endif %}
+                            {% if item.order_info.브랜드 %}
+                            <div class="order-info-item">
+                                <div class="order-info-label">브랜드:</div>
+                                <div class="order-info-value">{{ item.order_info.브랜드 }}</div>
+                            </div>
+                            {% endif %}
+                            {% if item.order_info.수량 %}
+                            <div class="order-info-item">
+                                <div class="order-info-label">수량:</div>
+                                <div class="order-info-value">{{ item.order_info.수량 }}</div>
+                            </div>
+                            {% endif %}
+                            {% if item.order_info.일자 %}
+                            <div class="order-info-item">
+                                <div class="order-info-label">일자:</div>
+                                <div class="order-info-value">{{ item.order_info.일자 }}</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                        {% endif %}
 
                         {% if item.gpt_suggestion %}
                         <div class="gpt-suggestion">
