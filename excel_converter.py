@@ -400,7 +400,8 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "수령자휴대폰": df.get("수령자휴대폰"),
             "배송메모": df.get("배송메모"),
             "주문상세번호": df.get("주문상세번호"),
-            "생산전표생성": ""
+            "생산전표생성": "",
+            "판매처": df.get("판매처")  # 원본 판매처 컬럼 보존 (검증용)
         })
 
         sales_cols = [
@@ -408,7 +409,7 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "통화", "환율", "주문번호", "상품코드", "품목명", "옵션", "규격", "수량",
             "단가(vat포함)", "단가", "외화금액", "공급가액", "부가세", "송장번호",
             "수령자주소", "수령자이름", "수령자전화", "수령자휴대폰", "배송메모",
-            "주문상세번호", "생산전표생성"
+            "주문상세번호", "생산전표생성", "판매처"
         ]
         sales = sales[sales_cols]
 
@@ -436,13 +437,14 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "외화금액": "",
             "공급가액": supply_cost,
             "부가세": vat_cost,
-            "적요": df["프로젝트"] + " " + df["거래처명"]
+            "적요": df["프로젝트"] + " " + df["거래처명"],
+            "판매처": df.get("판매처")  # 원본 판매처 컬럼 보존 (검증용)
         })
 
         purchase_cols = [
             "일자", "순번", "브랜드", "판매채널", "거래처코드", "거래처명", "입고창고",
             "통화", "환율", "품목코드", "품목명", "규격명", "수량", "단가",
-            "외화금액", "공급가액", "부가세", "적요"
+            "외화금액", "공급가액", "부가세", "적요", "판매처"
         ]
         purchase = purchase[purchase_cols]
 
