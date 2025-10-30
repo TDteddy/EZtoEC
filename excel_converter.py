@@ -289,32 +289,39 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         df["판매No."] = ""
         df["거래처코드"] = ""
 
-        def _partner_name(row):
-            seller = to_str(row.get("판매처"))
-            code2 = to_str(row.get("코드10"))
+        # 판매처 이름 추출 및 정규화 (DB 연결은 한 번만)
+        def extract_partner_names(df_input):
+            """판매처 이름 추출 및 정규화"""
+            names = []
 
-            # 기존 로직
-            if "수동발주" in seller:
-                result = code2
-            elif "(" in seller and ")" in seller:
-                try:
-                    result = seller.split("(")[1].split(")")[0]
-                except Exception:
+            for _, row in df_input.iterrows():
+                seller = to_str(row.get("판매처"))
+                code2 = to_str(row.get("코드10"))
+
+                # 기존 로직
+                if "수동발주" in seller:
+                    result = code2
+                elif "(" in seller and ")" in seller:
+                    try:
+                        result = seller.split("(")[1].split(")")[0]
+                    except Exception:
+                        result = seller
+                else:
                     result = seller
-            else:
-                result = seller
 
-            # 판매처 이름 정규화 (매핑 DB 사용)
+                names.append(result)
+
+            # DB 정규화 (한 번만 연결)
             if SELLER_MAPPING_AVAILABLE:
                 try:
                     with SellerMappingDB() as db:
-                        result = db.normalize_name(result)
+                        names = [db.normalize_name(name) for name in names]
                 except Exception:
                     pass  # 에러 발생 시 원본 그대로 사용
 
-            return result
+            return names
 
-        df["거래처명"] = df.apply(_partner_name, axis=1)
+        df["거래처명"] = extract_partner_names(df)
 
         def _project(row):
             seller = to_str(row.get("판매처"))
