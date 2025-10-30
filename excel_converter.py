@@ -210,8 +210,21 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
                 "브랜드": to_str(row_data.get("브랜드", ""))
             }
 
+            # 구분 가능한 original 이름 생성 (각 빈 값을 개별적으로 구분)
+            order_num = order_info["주문번호"][:15] if order_info["주문번호"] else ""
+            item_name = order_info["품목명"][:20] if order_info["품목명"] else ""
+
+            if order_num and item_name:
+                display_name = f"(빈 값 - 주문: {order_num} / 품목: {item_name})"
+            elif order_num:
+                display_name = f"(빈 값 - 주문: {order_num})"
+            elif item_name:
+                display_name = f"(빈 값 - 품목: {item_name})"
+            else:
+                display_name = f"(빈 값 - 행번호: {idx})"
+
             pending_mappings.append({
-                "original": "(빈 값)",
+                "original": display_name,
                 "gpt_suggestion": None,
                 "confidence": 0.0,
                 "reason": "거래처명이 비어있습니다",
