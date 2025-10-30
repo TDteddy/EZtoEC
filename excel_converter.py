@@ -183,54 +183,16 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
 
         # 1단계: 고유한 판매처명 수집 및 분류
         unique_sellers = {}  # {판매처명: [row_index 리스트]}
-        empty_indices = []   # 빈 값 인덱스
 
         for idx, row in manual_df.iterrows():
             seller_name = to_str(row.get("거래처명", "")).strip()
 
-            if not seller_name:
-                empty_indices.append(idx)
-            elif seller_name not in all_standard_names and not db.get_standard_name(seller_name):
+            # 빈 값은 이미 process_file에서 걸러졌으므로 여기서는 체크 안함
+            if seller_name and seller_name not in all_standard_names and not db.get_standard_name(seller_name):
                 # DB에 없는 경우만 수집
                 if seller_name not in unique_sellers:
                     unique_sellers[seller_name] = []
                 unique_sellers[seller_name].append(idx)
-
-        # 빈 값 처리
-        for idx in empty_indices:
-            print(f"  ⚠️  [{idx}] 거래처명이 비어있습니다")
-
-            # 원본 행 데이터 추출 (웹 에디터에서 표시용)
-            row_data = df.loc[idx]
-            order_info = {
-                "주문번호": to_str(row_data.get("주문번호", "")),
-                "품목명": to_str(row_data.get("품목명", "")),
-                "수량": to_str(row_data.get("수량", "")),
-                "일자": to_str(row_data.get("일자", "")),
-                "브랜드": to_str(row_data.get("브랜드", ""))
-            }
-
-            # 구분 가능한 original 이름 생성 (각 빈 값을 개별적으로 구분)
-            order_num = order_info["주문번호"][:15] if order_info["주문번호"] else ""
-            item_name = order_info["품목명"][:20] if order_info["품목명"] else ""
-
-            if order_num and item_name:
-                display_name = f"(빈 값 - 주문: {order_num} / 품목: {item_name})"
-            elif order_num:
-                display_name = f"(빈 값 - 주문: {order_num})"
-            elif item_name:
-                display_name = f"(빈 값 - 품목: {item_name})"
-            else:
-                display_name = f"(빈 값 - 행번호: {idx})"
-
-            pending_mappings.append({
-                "original": display_name,
-                "gpt_suggestion": None,
-                "confidence": 0.0,
-                "reason": "거래처명이 비어있습니다",
-                "row_index": idx,
-                "order_info": order_info  # 원본 주문 정보 추가
-            })
 
         # 2단계: DB 매칭 확인 (이미 있는 경우 PASS)
         for idx, row in manual_df.iterrows():
@@ -355,6 +317,58 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         for col in required_cols:
             if col not in df.columns:
                 df[col] = None
+
+        # 2-1) 수동발주 케이스의 코드10 빈 값 검사 (제일 먼저 실행)
+        manual_order_mask = df["판매처"].astype(str).str.contains("수동발주", na=False)
+        manual_orders = df[manual_order_mask].copy()
+
+        if not manual_orders.empty:
+            # 코드10이 비어있는 행 찾기
+            empty_code10_mask = manual_orders["코드10"].isna() | (manual_orders["코드10"].astype(str).str.strip() == "")
+            empty_code10_rows = manual_orders[empty_code10_mask]
+
+            if not empty_code10_rows.empty:
+                print("\n" + "=" * 80)
+                print("❌ [치명적 오류] 수동발주 케이스에 코드10이 비어있는 데이터 발견!")
+                print("=" * 80)
+                print(f"\n수동발주는 코드10 필드에 판매처 정보가 반드시 입력되어야 합니다.")
+                print(f"발견된 빈 값: {len(empty_code10_rows)}건\n")
+
+                # 빈 값이 있는 행의 상세 정보 출력 (최대 10개)
+                print("빈 값이 발견된 주문 정보:")
+                print("-" * 80)
+                for idx, (row_idx, row) in enumerate(empty_code10_rows.iterrows(), 1):
+                    if idx > 10:
+                        print(f"... 외 {len(empty_code10_rows) - 10}건 더 있음")
+                        break
+
+                    주문번호 = to_str(row.get("주문상세번호", ""))
+                    품목명 = to_str(row.get("상품명", ""))
+                    판매처 = to_str(row.get("판매처", ""))
+                    주문일 = to_str(row.get("주문일", ""))
+
+                    print(f"{idx}. 행번호: {row_idx + 2}")  # Excel 행번호 (헤더 1 + 0-based index)
+                    if 주문번호:
+                        print(f"   주문번호: {주문번호}")
+                    if 품목명:
+                        print(f"   품목명: {품목명}")
+                    if 판매처:
+                        print(f"   판매처: {판매처}")
+                    if 주문일:
+                        print(f"   주문일: {주문일}")
+                    print()
+
+                print("=" * 80)
+                print("⚠️  조치 방법:")
+                print("1. 원본 Excel 파일을 열어주세요")
+                print(f"2. 위에 표시된 행의 '코드10' 컬럼에 판매처 이름을 입력하세요")
+                print("3. 파일을 저장한 후 프로그램을 다시 실행하세요")
+                print("=" * 80)
+
+                raise ValueError(
+                    f"수동발주 케이스에 코드10이 비어있는 데이터가 {len(empty_code10_rows)}건 발견되었습니다. "
+                    f"원본 Excel 파일의 코드10 컬럼을 먼저 채워주세요."
+                )
 
         # 3) 셀 값 정리
         df = df.apply(lambda col: col.map(lambda x: None if (isinstance(x, str) and x.strip() == "") else x))

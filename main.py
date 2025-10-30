@@ -489,6 +489,11 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
             save_to_excel(excel_result, "output_ecount.xlsx")
             print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
 
+    except ValueError as e:
+        # ValueError는 사용자가 수정해야 하는 데이터 문제 (traceback 불필요)
+        # 예: 수동발주 코드10 빈 값
+        results["excel_conversion"] = {"success": False, "error": str(e)}
+        return results
     except Exception as e:
         print(f"❌ 엑셀 변환 실패: {e}")
         import traceback
