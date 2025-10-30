@@ -178,60 +178,143 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
     with SellerMappingDB() as db:
         all_standard_names = set(db.get_all_standard_names())
 
+        # GPT 호출 결과 캐시 (중복 호출 방지)
+        gpt_cache = {}
+
+        # 1단계: 고유한 판매처명 수집 및 분류
+        unique_sellers = {}  # {판매처명: [row_index 리스트]}
+        empty_indices = []   # 빈 값 인덱스
+
         for idx, row in manual_df.iterrows():
             seller_name = to_str(row.get("거래처명", "")).strip()
 
             if not seller_name:
-                print(f"  ⚠️  [{idx}] 거래처명이 비어있습니다")
-                pending_mappings.append({
-                    "original": seller_name or "(빈 값)",
-                    "gpt_suggestion": None,
-                    "confidence": 0.0,
-                    "reason": "거래처명이 비어있습니다",
-                    "row_index": idx
-                })
-                continue
+                empty_indices.append(idx)
+            elif seller_name not in all_standard_names and not db.get_standard_name(seller_name):
+                # DB에 없는 경우만 수집
+                if seller_name not in unique_sellers:
+                    unique_sellers[seller_name] = []
+                unique_sellers[seller_name].append(idx)
 
-            # 1. DB에 이미 있는 경우 PASS
-            if seller_name in all_standard_names or db.get_standard_name(seller_name):
+        # 빈 값 처리
+        for idx in empty_indices:
+            print(f"  ⚠️  [{idx}] 거래처명이 비어있습니다")
+
+            # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+            row_data = df.loc[idx]
+            order_info = {
+                "주문번호": to_str(row_data.get("주문번호", "")),
+                "품목명": to_str(row_data.get("품목명", "")),
+                "수량": to_str(row_data.get("수량", "")),
+                "일자": to_str(row_data.get("일자", "")),
+                "브랜드": to_str(row_data.get("브랜드", ""))
+            }
+
+            # 구분 가능한 original 이름 생성 (각 빈 값을 개별적으로 구분)
+            order_num = order_info["주문번호"][:15] if order_info["주문번호"] else ""
+            item_name = order_info["품목명"][:20] if order_info["품목명"] else ""
+
+            if order_num and item_name:
+                display_name = f"(빈 값 - 주문: {order_num} / 품목: {item_name})"
+            elif order_num:
+                display_name = f"(빈 값 - 주문: {order_num})"
+            elif item_name:
+                display_name = f"(빈 값 - 품목: {item_name})"
+            else:
+                display_name = f"(빈 값 - 행번호: {idx})"
+
+            pending_mappings.append({
+                "original": display_name,
+                "gpt_suggestion": None,
+                "confidence": 0.0,
+                "reason": "거래처명이 비어있습니다",
+                "row_index": idx,
+                "order_info": order_info  # 원본 주문 정보 추가
+            })
+
+        # 2단계: DB 매칭 확인 (이미 있는 경우 PASS)
+        for idx, row in manual_df.iterrows():
+            seller_name = to_str(row.get("거래처명", "")).strip()
+            if seller_name and (seller_name in all_standard_names or db.get_standard_name(seller_name)):
                 print(f"  ✅ [{idx}] {seller_name} - DB 매칭")
-                continue
 
-            # 2. GPT로 오타 교정 시도
-            print(f"  🤖 [{idx}] {seller_name} - GPT 교정 시도 중...")
+        # 3단계: 고유 판매처에 대해서만 GPT 호출 (중복 제거)
+        print(f"\n[GPT 교정] 고유 판매처 {len(unique_sellers)}건 검증 중...")
+
+        for seller_name, indices in unique_sellers.items():
+            # 첫 번째 인덱스만 로그에 표시
+            first_idx = indices[0]
+            print(f"  🤖 {seller_name} ({len(indices)}건) - GPT 교정 시도 중...")
+
             gpt_result = db.find_similar_with_gpt(seller_name, threshold=0.7)
+            gpt_cache[seller_name] = gpt_result
 
             if gpt_result:
                 if gpt_result.get("requires_manual"):
                     # 수동 매핑 필요
-                    print(f"  ⚠️  [{idx}] {seller_name} - 수동 매핑 필요 (신뢰도: {gpt_result.get('confidence', 0):.0%})")
-                    gpt_result["row_index"] = idx
-                    pending_mappings.append(gpt_result)
+                    confidence = gpt_result.get("confidence", 0)
+                    print(f"  ⚠️  {seller_name} - 수동 매핑 필요 (신뢰도: {confidence:.0%})")
+
+                    # 모든 인덱스에 대해 pending_mappings에 추가
+                    for idx in indices:
+                        # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+                        row_data = df.loc[idx]
+                        order_info = {
+                            "주문번호": to_str(row_data.get("주문번호", "")),
+                            "품목명": to_str(row_data.get("품목명", "")),
+                            "수량": to_str(row_data.get("수량", "")),
+                            "일자": to_str(row_data.get("일자", "")),
+                            "브랜드": to_str(row_data.get("브랜드", ""))
+                        }
+
+                        pending_mappings.append({
+                            "original": seller_name,
+                            "gpt_suggestion": gpt_result.get("matched"),
+                            "confidence": confidence,
+                            "reason": gpt_result.get("reason", ""),
+                            "row_index": idx,
+                            "order_info": order_info  # 원본 주문 정보 추가
+                        })
                 else:
                     # 자동 교정 성공
                     matched = gpt_result.get("matched")
                     confidence = gpt_result.get("confidence", 0)
-                    print(f"  ✅ [{idx}] {seller_name} → {matched} (신뢰도: {confidence:.0%})")
+                    print(f"  ✅ {seller_name} → {matched} (신뢰도: {confidence:.0%})")
 
-                    # DataFrame 업데이트
-                    df.at[idx, "거래처명"] = matched
+                    # 모든 해당 행의 DataFrame 업데이트
+                    for idx in indices:
+                        df.at[idx, "거래처명"] = matched
 
-                    # DB에 자동으로 매핑 추가
+                    # DB에 자동으로 매핑 추가 (한 번만)
                     db.add_mapping(seller_name, matched)
             else:
                 # GPT 실패
-                print(f"  ❌ [{idx}] {seller_name} - GPT 매칭 실패")
-                pending_mappings.append({
-                    "original": seller_name,
-                    "gpt_suggestion": None,
-                    "confidence": 0.0,
-                    "reason": "GPT 매칭 실패",
-                    "row_index": idx
-                })
+                print(f"  ❌ {seller_name} - GPT 매칭 실패")
+
+                # 모든 인덱스에 대해 pending_mappings에 추가
+                for idx in indices:
+                    # 원본 행 데이터 추출 (웹 에디터에서 표시용)
+                    row_data = df.loc[idx]
+                    order_info = {
+                        "주문번호": to_str(row_data.get("주문번호", "")),
+                        "품목명": to_str(row_data.get("품목명", "")),
+                        "수량": to_str(row_data.get("수량", "")),
+                        "일자": to_str(row_data.get("일자", "")),
+                        "브랜드": to_str(row_data.get("브랜드", ""))
+                    }
+
+                    pending_mappings.append({
+                        "original": seller_name,
+                        "gpt_suggestion": None,
+                        "confidence": 0.0,
+                        "reason": "GPT 매칭 실패",
+                        "row_index": idx,
+                        "order_info": order_info  # 원본 주문 정보 추가
+                    })
 
     unique_pending = len(set(p["original"] for p in pending_mappings))
     if pending_mappings:
-        print(f"\n⚠️  수동 매핑 필요: {unique_pending}건")
+        print(f"\n⚠️  수동 매핑 필요: {unique_pending}개 고유 판매처 (총 {len(pending_mappings)}건)")
     else:
         print(f"\n✅ 모든 데이터 검증 완료")
 

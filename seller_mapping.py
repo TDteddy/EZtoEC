@@ -406,7 +406,13 @@ class SellerMappingDB:
                 }
 
         except Exception as e:
-            print(f"⚠️ GPT 매칭 실패: {e}")
+            error_msg = str(e)
+            # proxies 에러인 경우 더 자세한 안내
+            if "proxies" in error_msg.lower():
+                print(f"⚠️ GPT 매칭 실패: OpenAI 라이브러리 버전 호환성 문제")
+                print(f"   해결방법: pip install --upgrade openai")
+            else:
+                print(f"⚠️ GPT 매칭 실패: {error_msg}")
             return None
 
     def export_to_csv(self, csv_path: str = "seller_mapping.csv") -> bool:
