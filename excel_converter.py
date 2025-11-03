@@ -328,7 +328,14 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             if col not in df.columns:
                 df[col] = None
 
-        # 2-1) 수동발주 케이스의 코드10 빈 값 검사 (제일 먼저 실행)
+        # 3) 셀 값 정리
+        df = df.apply(lambda col: col.map(lambda x: None if (isinstance(x, str) and x.strip() == "") else x))
+
+        # 4) 판매처에 '로켓그로스' 또는 '전용수동발주 에이더' 포함 시 제외
+        df = df[~df["판매처"].map(to_str).str.contains("로켓그로스", na=False)].copy()
+        df = df[~df["판매처"].map(to_str).str.contains("전용수동발주 에이더", na=False)].copy()
+
+        # 5) 수동발주 케이스의 코드10 빈 값 검사 (로켓그로스/에이더 제외 후 실행)
         manual_order_mask = df["판매처"].astype(str).str.contains("수동발주", na=False)
         manual_orders = df[manual_order_mask].copy()
 
@@ -380,19 +387,12 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
                     f"원본 Excel 파일의 코드10 컬럼을 먼저 채워주세요."
                 )
 
-        # 3) 셀 값 정리
-        df = df.apply(lambda col: col.map(lambda x: None if (isinstance(x, str) and x.strip() == "") else x))
-
-        # 4) 판매처에 '로켓그로스' 또는 '전용수동발주 에이더' 포함 시 제외
-        df = df[~df["판매처"].map(to_str).str.contains("로켓그로스", na=False)].copy()
-        df = df[~df["판매처"].map(to_str).str.contains("전용수동발주 에이더", na=False)].copy()
-
-        # 5) 일자: 주문일 우선, 없으면 발주일
+        # 6) 일자: 주문일 우선, 없으면 발주일
         order_dt = pd.to_datetime(df["주문일"], errors="coerce")
         po_dt = pd.to_datetime(df["발주일"], errors="coerce")
         df["일자"] = order_dt.fillna(po_dt).dt.date
 
-        # 6) 공통 필드
+        # 7) 공통 필드
         df["순번"] = ""
         df["판매No."] = ""
         df["거래처코드"] = ""
