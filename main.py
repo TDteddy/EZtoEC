@@ -287,6 +287,68 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     return purchase_list
 
 
+def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> List[pd.DataFrame]:
+    """
+    DataFrame을 전표번호별로 그룹화하여 배치로 분할
+
+    - 전표는 "브랜드" + "판매채널" 기준으로 그룹화
+    - 전표가 중간에 끊기지 않도록 처리
+    - 한 전표가 300건을 넘으면 그것도 300건씩 분할
+
+    Args:
+        df: 판매 또는 구매 DataFrame
+        batch_size: 배치당 최대 건수 (기본 300)
+
+    Returns:
+        분할된 DataFrame 리스트
+    """
+    if df.empty:
+        return []
+
+    # 브랜드 + 판매채널 기준으로 그룹화
+    grouped = df.groupby(["브랜드", "판매채널"], sort=False)
+
+    batches = []
+    current_batch = []
+    current_size = 0
+
+    for group_key, group_df in grouped:
+        group_size = len(group_df)
+
+        # 그룹 자체가 batch_size를 넘으면 분할
+        if group_size > batch_size:
+            # 현재 배치가 있으면 먼저 저장
+            if current_batch:
+                batches.append(pd.concat(current_batch, ignore_index=True))
+                current_batch = []
+                current_size = 0
+
+            # 그룹을 batch_size씩 분할
+            for i in range(0, group_size, batch_size):
+                chunk = group_df.iloc[i:i+batch_size].copy()
+                batches.append(chunk)
+
+        # 현재 배치에 추가하면 batch_size 초과하는 경우
+        elif current_size + group_size > batch_size:
+            # 현재 배치 저장
+            if current_batch:
+                batches.append(pd.concat(current_batch, ignore_index=True))
+            # 새 배치 시작
+            current_batch = [group_df.copy()]
+            current_size = group_size
+
+        # 현재 배치에 추가
+        else:
+            current_batch.append(group_df.copy())
+            current_size += group_size
+
+    # 마지막 배치
+    if current_batch:
+        batches.append(pd.concat(current_batch, ignore_index=True))
+
+    return batches
+
+
 def save_sale(session_id: str, sales_df: pd.DataFrame,
               zone: str = "AD", test: bool = False, timeout: int = 30) -> dict:
     """
@@ -533,40 +595,69 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
 
     # ===== 3단계: 판매 데이터 업로드 =====
     if upload_sales and not sales_df.empty:
-        print(f"\n[3단계] 판매 데이터 업로드 중... ({len(sales_df)}건)")
-        try:
-            sale_result = save_sale(
-                session_id=session_id,
-                sales_df=sales_df,
-                zone=ZONE,
-                test=USE_TEST_SERVER
-            )
+        print(f"\n[3단계] 판매 데이터 업로드 중... (총 {len(sales_df)}건)")
 
-            # 결과 분석
-            result_data = sale_result.get("Data", {})
-            success_cnt = result_data.get("SuccessCnt", 0)
-            fail_cnt = result_data.get("FailCnt", 0)
-            slip_nos = result_data.get("SlipNos", [])
+        # 전표번호별로 300건씩 배치 분할
+        sales_batches = split_dataframe_into_batches(sales_df, batch_size=300)
+        total_batches = len(sales_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+            for i, batch in enumerate(sales_batches, 1):
+                print(f"     배치 {i}/{total_batches}: {len(batch)}건")
+
+        # 누적 결과
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(sales_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                sale_result = save_sale(
+                    session_id=session_id,
+                    sales_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                # 결과 분석
+                result_data = sale_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                # 실패 상세
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
 
             results["sales_upload"] = {
                 "success": True,
-                "success_count": success_cnt,
-                "fail_count": fail_cnt,
-                "slip_nos": slip_nos
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos,
+                "batch_count": total_batches
             }
 
-            print(f"✅ 판매 업로드 완료:")
-            print(f"  - 성공: {success_cnt}건")
-            print(f"  - 실패: {fail_cnt}건")
-            if slip_nos:
-                print(f"  - 전표번호: {', '.join(slip_nos)}")
-
-            # 실패 상세
-            if fail_cnt > 0:
-                result_details = result_data.get("ResultDetails", [])
-                for detail in result_details:
-                    if not detail.get("IsSuccess", False):
-                        print(f"  ⚠️ 오류: {detail.get('TotalError', '')}")
+            print(f"\n✅ 판매 업로드 완료:")
+            print(f"  - 총 배치 수: {total_batches}개")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+            if all_slip_nos:
+                print(f"  - 전표번호: {', '.join(all_slip_nos[:10])}" +
+                      (f" 외 {len(all_slip_nos) - 10}건..." if len(all_slip_nos) > 10 else ""))
 
         except Exception as e:
             print(f"❌ 판매 업로드 실패: {e}")
@@ -578,40 +669,69 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
 
     # ===== 4단계: 구매 데이터 업로드 =====
     if upload_purchase and not purchase_df.empty:
-        print(f"\n[4단계] 구매 데이터 업로드 중... ({len(purchase_df)}건)")
-        try:
-            purchase_result = save_purchase(
-                session_id=session_id,
-                purchase_df=purchase_df,
-                zone=ZONE,
-                test=USE_TEST_SERVER
-            )
+        print(f"\n[4단계] 구매 데이터 업로드 중... (총 {len(purchase_df)}건)")
 
-            # 결과 분석
-            result_data = purchase_result.get("Data", {})
-            success_cnt = result_data.get("SuccessCnt", 0)
-            fail_cnt = result_data.get("FailCnt", 0)
-            slip_nos = result_data.get("SlipNos", [])
+        # 전표번호별로 300건씩 배치 분할
+        purchase_batches = split_dataframe_into_batches(purchase_df, batch_size=300)
+        total_batches = len(purchase_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+            for i, batch in enumerate(purchase_batches, 1):
+                print(f"     배치 {i}/{total_batches}: {len(batch)}건")
+
+        # 누적 결과
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(purchase_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                purchase_result = save_purchase(
+                    session_id=session_id,
+                    purchase_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                # 결과 분석
+                result_data = purchase_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                # 실패 상세
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
 
             results["purchase_upload"] = {
                 "success": True,
-                "success_count": success_cnt,
-                "fail_count": fail_cnt,
-                "slip_nos": slip_nos
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos,
+                "batch_count": total_batches
             }
 
-            print(f"✅ 구매 업로드 완료:")
-            print(f"  - 성공: {success_cnt}건")
-            print(f"  - 실패: {fail_cnt}건")
-            if slip_nos:
-                print(f"  - 전표번호: {', '.join(slip_nos)}")
-
-            # 실패 상세
-            if fail_cnt > 0:
-                result_details = result_data.get("ResultDetails", [])
-                for detail in result_details:
-                    if not detail.get("IsSuccess", False):
-                        print(f"  ⚠️ 오류: {detail.get('TotalError', '')}")
+            print(f"\n✅ 구매 업로드 완료:")
+            print(f"  - 총 배치 수: {total_batches}개")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+            if all_slip_nos:
+                print(f"  - 전표번호: {', '.join(all_slip_nos[:10])}" +
+                      (f" 외 {len(all_slip_nos) - 10}건..." if len(all_slip_nos) > 10 else ""))
 
         except Exception as e:
             print(f"❌ 구매 업로드 실패: {e}")
