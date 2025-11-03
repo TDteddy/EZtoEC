@@ -30,6 +30,16 @@ except ImportError:
     SELLER_MAPPING_AVAILABLE = False
     print("[WARN] seller_mapping.py를 찾을 수 없습니다. 판매처 이름 정규화가 비활성화됩니다.")
 
+# ===== 타사 재고 채움 처리 (매출 0원 처리 대상) =====
+# 타사에 재고를 채워준 경우, 물건은 나갔지만 매출은 0으로 처리해야 함
+# 코드10에 다음 판매처가 있으면 매출 금액을 모두 0으로 변경
+ZERO_SALES_PARTNERS = [
+    "성원글로벌",
+    "에이원비앤에이치",
+    "글로벌엠지코리아",
+    # 추가 판매처는 여기에 추가하세요
+]
+
 # ===== 설정 =====
 DATA_DIR = "./data"
 RATES_YAML = "rates.yml"
@@ -509,6 +519,22 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
             "주문상세번호", "생산전표생성", "판매처"
         ]
         sales = sales[sales_cols]
+
+        # ===== 타사 재고 채움 처리: 매출 0원 처리 =====
+        # 코드10에 특정 판매처가 있으면 매출 금액을 0으로 변경 (재고는 나가지만 매출은 없음)
+        zero_sales_mask = sales["거래처명"].isin(ZERO_SALES_PARTNERS)
+        if zero_sales_mask.any():
+            affected_count = zero_sales_mask.sum()
+            affected_partners = sales.loc[zero_sales_mask, "거래처명"].unique()
+            print(f"[INFO] 타사 재고 채움 처리: {affected_count}건 (판매처: {', '.join(affected_partners)})")
+            print(f"       → 매출 금액을 0으로 변경 (물건은 나가지만 매출 없음)")
+
+            # 금액 관련 컬럼을 모두 0으로 변경
+            sales.loc[zero_sales_mask, "단가(vat포함)"] = 0
+            sales.loc[zero_sales_mask, "단가"] = 0
+            sales.loc[zero_sales_mask, "공급가액"] = 0
+            sales.loc[zero_sales_mask, "부가세"] = 0
+            sales.loc[zero_sales_mask, "외화금액"] = ""
 
         # ===== 매입 시트 구성 =====
         cost = to_int_series(df.get("상품원가"))
