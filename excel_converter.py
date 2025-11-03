@@ -3,7 +3,7 @@
 이카운트 판매·매입·매입전표(운송료/판매수수료) 입력 양식으로 변환해주는 스크립트입니다.
 
 - data/ 폴더의 .xlsx/.xls 파일들을 읽어 하나의 결과를 만듭니다.
-- '로켓그로스'가 판매처에 포함된 행은 제외합니다.
+- '로켓그로스' 또는 '전용수동발주 에이더'가 판매처에 포함된 행은 제외합니다.
 - 결과는 DataFrame으로 반환됩니다:
   1) '판매_데이터'
   2) '구매_데이터'
@@ -383,8 +383,9 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         # 3) 셀 값 정리
         df = df.apply(lambda col: col.map(lambda x: None if (isinstance(x, str) and x.strip() == "") else x))
 
-        # 4) 판매처에 '로켓그로스' 포함 시 제외
+        # 4) 판매처에 '로켓그로스' 또는 '전용수동발주 에이더' 포함 시 제외
         df = df[~df["판매처"].map(to_str).str.contains("로켓그로스", na=False)].copy()
+        df = df[~df["판매처"].map(to_str).str.contains("전용수동발주 에이더", na=False)].copy()
 
         # 5) 일자: 주문일 우선, 없으면 발주일
         order_dt = pd.to_datetime(df["주문일"], errors="coerce")
