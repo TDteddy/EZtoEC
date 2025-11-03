@@ -119,11 +119,11 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """
     판매 DataFrame을 이카운트 API 형식으로 변환
 
-    전표 묶음 순번: 같은 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
+    전표 묶음 순번: 같은 일자 + 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
 
     필드 매핑:
     - IO_DATE: 일자
-    - UPLOAD_SER_NO: 순번 (자동 할당: 브랜드 + 판매채널 기준)
+    - UPLOAD_SER_NO: 순번 (자동 할당: 일자 + 브랜드 + 판매채널 기준)
     - PJT_CD: 브랜드 (프로젝트)
     - SITE: 판매채널 (부서)
     - CUST_DES: 거래처명
@@ -147,10 +147,10 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     if sales_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 브랜드 + 판매채널 기준으로 그룹화
+    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
     # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
     sales_df_copy = sales_df.copy()
-    sales_df_copy["전표묶음순번"] = sales_df_copy.groupby(["브랜드", "판매채널"]).ngroup() + 1
+    sales_df_copy["전표묶음순번"] = sales_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
 
     sale_list = []
 
@@ -213,11 +213,11 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     """
     매입 DataFrame을 이카운트 API 형식으로 변환
 
-    전표 묶음 순번: 같은 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
+    전표 묶음 순번: 같은 일자 + 브랜드(프로젝트) + 판매채널(부서)을 가진 행들을 하나의 전표로 묶음
 
     필드 매핑:
     - IO_DATE: 일자
-    - UPLOAD_SER_NO: 순번 (자동 할당: 브랜드 + 판매채널 기준)
+    - UPLOAD_SER_NO: 순번 (자동 할당: 일자 + 브랜드 + 판매채널 기준)
     - PJT_CD: 브랜드 (프로젝트)
     - SITE: 판매채널 (부서)
     - CUST_DES: 거래처명
@@ -232,10 +232,10 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     if purchase_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 브랜드 + 판매채널 기준으로 그룹화
+    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
     # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
     purchase_df_copy = purchase_df.copy()
-    purchase_df_copy["전표묶음순번"] = purchase_df_copy.groupby(["브랜드", "판매채널"]).ngroup() + 1
+    purchase_df_copy["전표묶음순번"] = purchase_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
 
     purchase_list = []
 
@@ -291,7 +291,7 @@ def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> Lis
     """
     DataFrame을 전표번호별로 그룹화하여 배치로 분할
 
-    - 전표는 "브랜드" + "판매채널" 기준으로 그룹화
+    - 전표는 "일자" + "브랜드" + "판매채널" 기준으로 그룹화
     - 전표가 중간에 끊기지 않도록 처리
     - 한 전표가 300건을 넘으면 그것도 300건씩 분할
 
@@ -305,8 +305,8 @@ def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> Lis
     if df.empty:
         return []
 
-    # 브랜드 + 판매채널 기준으로 그룹화
-    grouped = df.groupby(["브랜드", "판매채널"], sort=False)
+    # 일자 + 브랜드 + 판매채널 기준으로 그룹화
+    grouped = df.groupby(["일자", "브랜드", "판매채널"], sort=False)
 
     batches = []
     current_batch = []
