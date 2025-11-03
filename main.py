@@ -471,97 +471,118 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         "purchase_upload": None
     }
 
-    # ===== 1단계: 엑셀 변환 및 데이터 검증 =====
-    print("\n[1단계] 이지어드민 엑셀 파일 변환 및 데이터 검증 중...")
-    try:
-        excel_result, pending_mappings = process_ezadmin_to_ecount()
-        sales_df = excel_result["sales"]
-        purchase_df = excel_result["purchase"]
-        voucher_df = excel_result["voucher"]
+    # ===== 1단계: 엑셀 변환 및 데이터 검증 (매핑 완료될 때까지 반복) =====
+    sales_df = None
+    purchase_df = None
+    voucher_df = None
+    excel_result = None
 
-        results["excel_conversion"] = {
-            "success": True,
-            "sales_count": len(sales_df),
-            "purchase_count": len(purchase_df),
-            "voucher_count": len(voucher_df)
-        }
+    max_retries = 5  # 최대 5번까지 재시도
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt == 1:
+                print("\n[1단계] 이지어드민 엑셀 파일 변환 및 데이터 검증 중...")
+            else:
+                print(f"\n[1단계-재시도 {attempt}/{max_retries}] 매핑 후 재검증 중...")
 
-        print(f"✅ 변환 완료:")
-        print(f"  - 판매: {len(sales_df)}건")
-        print(f"  - 매입: {len(purchase_df)}건")
-        print(f"  - 매입전표: {len(voucher_df)}건")
+            excel_result, pending_mappings = process_ezadmin_to_ecount()
+            sales_df = excel_result["sales"]
+            purchase_df = excel_result["purchase"]
+            voucher_df = excel_result["voucher"]
 
-        # ===== 1-1단계: 정제 불가 데이터 처리 (웹 에디터) =====
-        if pending_mappings:
-            print("\n" + "=" * 80)
-            print(f"⚠️  [데이터 검증 실패] DB에 없는 판매처 발견: {len(pending_mappings)}건")
-            print("=" * 80)
+            results["excel_conversion"] = {
+                "success": True,
+                "sales_count": len(sales_df),
+                "purchase_count": len(purchase_df),
+                "voucher_count": len(voucher_df)
+            }
 
-            unique_sellers = {}
-            for p in pending_mappings:
-                original = p.get("original", "")
-                if original not in unique_sellers:
-                    unique_sellers[original] = p
+            print(f"✅ 변환 완료:")
+            print(f"  - 판매: {len(sales_df)}건")
+            print(f"  - 매입: {len(purchase_df)}건")
+            print(f"  - 매입전표: {len(voucher_df)}건")
 
-            for seller, info in unique_sellers.items():
-                confidence = info.get("confidence", 0)
-                suggestion = info.get("gpt_suggestion")
-                print(f"  - {seller}")
-                if suggestion:
-                    print(f"    └ GPT 추천: {suggestion} (신뢰도: {confidence:.0%})")
+            # ===== 1-1단계: 정제 불가 데이터 처리 (웹 에디터) =====
+            if pending_mappings:
+                print("\n" + "=" * 80)
+                print(f"⚠️  [데이터 검증 실패] DB에 없는 판매처 발견: {len(pending_mappings)}건")
+                print("=" * 80)
 
-            print("\n❌ 업로드를 중단합니다.")
-            print("   DB에 없는 판매처가 포함된 데이터는 업로드할 수 없습니다.")
-            print("\n🌐 웹 에디터를 실행합니다...")
-            print("   브라우저에서 http://localhost:5000 접속하여 판매처 이름을 매핑하세요.\n")
+                unique_sellers = {}
+                for p in pending_mappings:
+                    original = p.get("original", "")
+                    if original not in unique_sellers:
+                        unique_sellers[original] = p
 
-            try:
-                from seller_editor import start_editor
-                import threading
+                for seller, info in unique_sellers.items():
+                    confidence = info.get("confidence", 0)
+                    suggestion = info.get("gpt_suggestion")
+                    print(f"  - {seller}")
+                    if suggestion:
+                        print(f"    └ GPT 추천: {suggestion} (신뢰도: {confidence:.0%})")
 
-                # 웹 에디터를 백그라운드 스레드로 실행
-                editor_thread = threading.Thread(
-                    target=start_editor,
-                    args=(list(unique_sellers.values()),),
-                    kwargs={"port": 5000},
-                    daemon=True
-                )
-                editor_thread.start()
+                print("\n❌ 업로드를 중단합니다.")
+                print("   DB에 없는 판매처가 포함된 데이터는 업로드할 수 없습니다.")
+                print("\n🌐 웹 에디터를 실행합니다...")
+                print("   브라우저에서 http://localhost:5000 접속하여 판매처 이름을 매핑하세요.\n")
 
-                # 사용자가 매핑을 완료할 때까지 대기
-                print("⏳ 매핑 완료 후 Enter를 눌러 종료하세요...")
-                input()
+                try:
+                    from seller_editor import start_editor
+                    import threading
 
-                print("\n✅ 매핑을 저장했습니다.")
-                print("   매핑을 완료한 후 프로그램을 다시 실행하세요:")
-                print("   $ python main.py\n")
+                    # 웹 에디터를 백그라운드 스레드로 실행
+                    editor_thread = threading.Thread(
+                        target=start_editor,
+                        args=(list(unique_sellers.values()),),
+                        kwargs={"port": 5000},
+                        daemon=True
+                    )
+                    editor_thread.start()
 
-            except KeyboardInterrupt:
-                print("\n⚠️  사용자가 중단했습니다.")
-            except Exception as e:
-                print(f"\n⚠️  웹 에디터 실행 실패: {e}")
-                print("   수동으로 seller_mapping.py를 사용하여 매핑을 추가하세요.")
-                print("   매핑 완료 후 프로그램을 다시 실행하세요.")
+                    # 사용자가 매핑을 완료할 때까지 대기
+                    print("⏳ 매핑 완료 후 Enter를 눌러 재검증 및 업로드를 진행하세요...")
+                    input()
 
-            # 업로드 단계로 진행하지 않고 종료
+                    print("\n✅ 매핑을 저장했습니다.")
+                    print("   → 데이터를 다시 검증합니다...\n")
+
+                    # 루프를 계속해서 재검증 시도
+                    continue
+
+                except KeyboardInterrupt:
+                    print("\n⚠️  사용자가 중단했습니다.")
+                    return results
+                except Exception as e:
+                    print(f"\n⚠️  웹 에디터 실행 실패: {e}")
+                    print("   수동으로 seller_mapping.py를 사용하여 매핑을 추가하세요.")
+                    print("   매핑 완료 후 프로그램을 다시 실행하세요.")
+                    return results
+            else:
+                # 모든 매핑이 완료됨 - 루프 탈출하고 업로드 진행
+                print("\n✅ 모든 판매처 검증 완료!")
+                break
+
+        except ValueError as e:
+            # ValueError는 사용자가 수정해야 하는 데이터 문제 (traceback 불필요)
+            # 예: 수동발주 코드10 빈 값
+            results["excel_conversion"] = {"success": False, "error": str(e)}
             return results
-
-        # 선택적: 엑셀 파일로 저장
-        if save_excel:
-            save_to_excel(excel_result, "output_ecount.xlsx")
-            print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
-
-    except ValueError as e:
-        # ValueError는 사용자가 수정해야 하는 데이터 문제 (traceback 불필요)
-        # 예: 수동발주 코드10 빈 값
-        results["excel_conversion"] = {"success": False, "error": str(e)}
+        except Exception as e:
+            print(f"❌ 엑셀 변환 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            results["excel_conversion"] = {"success": False, "error": str(e)}
+            return results
+    else:
+        # 최대 재시도 횟수 초과
+        print(f"\n❌ 최대 재시도 횟수({max_retries}회)를 초과했습니다.")
+        print("   매핑을 완료한 후 프로그램을 다시 실행하세요.")
         return results
-    except Exception as e:
-        print(f"❌ 엑셀 변환 실패: {e}")
-        import traceback
-        traceback.print_exc()
-        results["excel_conversion"] = {"success": False, "error": str(e)}
-        return results
+
+    # 선택적: 엑셀 파일로 저장
+    if save_excel and excel_result:
+        save_to_excel(excel_result, "output_ecount.xlsx")
+        print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
