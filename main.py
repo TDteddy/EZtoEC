@@ -3,7 +3,7 @@ import requests
 import json
 from typing import List, Dict, Any
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from dotenv import load_dotenv
 
 # .env 파일에서 환경 변수 로드
@@ -104,15 +104,29 @@ def safe_str(value: Any) -> str:
 
 
 def safe_date(value: Any) -> str:
-    """날짜를 YYYYMMDD 형식으로 변환"""
+    """날짜를 YYYYMMDD 형식으로 변환 (예: 20180612)"""
     if pd.isna(value) or value is None:
         return ""
-    if isinstance(value, str):
-        # 이미 문자열인 경우 그대로 반환 (또는 파싱 시도)
-        return value.replace("-", "").replace("/", "")[:8]
-    if isinstance(value, (datetime, pd.Timestamp)):
+
+    # datetime.date, datetime.datetime, pd.Timestamp 처리
+    if isinstance(value, (datetime, pd.Timestamp, date)):
         return value.strftime("%Y%m%d")
-    return str(value)[:8]
+
+    # 문자열 처리
+    if isinstance(value, str):
+        # 구분자 제거 후 YYYYMMDD 형식으로 변환
+        cleaned = value.replace("-", "").replace("/", "").strip()
+        if len(cleaned) >= 8:
+            return cleaned[:8]
+        return value
+
+    # 기타 타입은 문자열로 변환 시도
+    str_value = str(value)
+    if len(str_value) >= 8:
+        cleaned = str_value.replace("-", "").replace("/", "").strip()
+        return cleaned[:8]
+
+    return str_value
 
 
 def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
