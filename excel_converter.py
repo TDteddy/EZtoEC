@@ -204,11 +204,22 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
                     unique_sellers[seller_name] = []
                 unique_sellers[seller_name].append(idx)
 
-        # 2단계: DB 매칭 확인 (이미 있는 경우 PASS)
+        # 2단계: DB 매칭 확인 및 DataFrame 업데이트
         for idx, row in manual_df.iterrows():
             seller_name = to_str(row.get("거래처명", "")).strip()
-            if seller_name and (seller_name in all_standard_names or db.get_standard_name(seller_name)):
-                print(f"  ✅ [{idx}] {seller_name} - DB 매칭")
+            if seller_name:
+                # DB에서 스탠다드 이름 조회
+                if seller_name in all_standard_names:
+                    # 이미 스탠다드 이름인 경우
+                    standard_name = seller_name
+                    print(f"  ✅ [{idx}] {seller_name} - DB 매칭 (스탠다드 이름)")
+                else:
+                    # 별칭인 경우 스탠다드 이름으로 변환
+                    standard_name = db.get_standard_name(seller_name)
+                    if standard_name:
+                        print(f"  ✅ [{idx}] {seller_name} → {standard_name} - DB 매칭")
+                        # DataFrame 업데이트
+                        df.at[idx, "거래처명"] = standard_name
 
         # 3단계: 고유 판매처에 대해서만 GPT 호출 (중복 제거)
         print(f"\n[GPT 교정] 고유 판매처 {len(unique_sellers)}건 검증 중...")
