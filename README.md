@@ -520,7 +520,7 @@ upload_results = {
 ### 판매 API (SaveSale)
 | 이지어드민 | 이카운트 API | 비고 |
 |----------|-------------|------|
-| 주문일 | IO_DATE | YYYYMMDD |
+| 주문일 | IO_DATE | YYYY-MM-DD |
 | (자동) | UPLOAD_SER_NO | 전표묶음순번 (일자+브랜드+판매채널) |
 | 브랜드 | PJT_CD | 프로젝트 코드 |
 | 판매채널 | SITE | 부서 |
@@ -534,7 +534,7 @@ upload_results = {
 ### 구매 API (SavePurchases)
 | 이지어드민 | 이카운트 API | 비고 |
 |----------|-------------|------|
-| 발주일 | IO_DATE | YYYYMMDD |
+| 발주일 | IO_DATE | YYYY-MM-DD |
 | (자동) | UPLOAD_SER_NO | 전표묶음순번 (일자+브랜드+판매채널) |
 | 브랜드 | PJT_CD | 프로젝트 코드 |
 | 거래처명 | SITE | 부서 |
