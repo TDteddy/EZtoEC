@@ -104,27 +104,27 @@ def safe_str(value: Any) -> str:
 
 
 def safe_date(value: Any) -> str:
-    """날짜를 YYYY-MM-DD 형식으로 변환"""
+    """날짜를 YYYYMMDD 형식으로 변환 (예: 20180612)"""
     if pd.isna(value) or value is None:
         return ""
 
     # datetime.date, datetime.datetime, pd.Timestamp 처리
     if isinstance(value, (datetime, pd.Timestamp, date)):
-        return value.strftime("%Y-%m-%d")
+        return value.strftime("%Y%m%d")
 
     # 문자열 처리
     if isinstance(value, str):
-        # 구분자 제거 후 YYYY-MM-DD 형식으로 변환
+        # 구분자 제거 후 YYYYMMDD 형식으로 변환
         cleaned = value.replace("-", "").replace("/", "").strip()
         if len(cleaned) >= 8:
-            return f"{cleaned[0:4]}-{cleaned[4:6]}-{cleaned[6:8]}"
+            return cleaned[:8]
         return value
 
     # 기타 타입은 문자열로 변환 시도
     str_value = str(value)
     if len(str_value) >= 8:
         cleaned = str_value.replace("-", "").replace("/", "").strip()
-        return f"{cleaned[0:4]}-{cleaned[4:6]}-{cleaned[6:8]}"
+        return cleaned[:8]
 
     return str_value
 
