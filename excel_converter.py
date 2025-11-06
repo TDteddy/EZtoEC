@@ -218,8 +218,12 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
                     standard_name = db.get_standard_name(seller_name)
                     if standard_name:
                         print(f"  ✅ [{idx}] {seller_name} → {standard_name} - DB 매칭")
-                        # DataFrame 업데이트
+                        # DataFrame 업데이트 (거래처명, 판매유형, 판매채널)
                         df.at[idx, "거래처명"] = standard_name
+                        if "판매유형" in df.columns:
+                            df.at[idx, "판매유형"] = standard_name
+                        if "판매채널" in df.columns:
+                            df.at[idx, "판매채널"] = standard_name
 
         # 3단계: 고유 판매처에 대해서만 GPT 호출 (중복 제거)
         print(f"\n[GPT 교정] 고유 판매처 {len(unique_sellers)}건 검증 중...")
@@ -264,9 +268,13 @@ def validate_and_correct_sellers(df: pd.DataFrame, pending_mappings: List[Dict] 
                     confidence = gpt_result.get("confidence", 0)
                     print(f"  ✅ {seller_name} → {matched} (신뢰도: {confidence:.0%})")
 
-                    # 모든 해당 행의 DataFrame 업데이트
+                    # 모든 해당 행의 DataFrame 업데이트 (거래처명, 판매유형, 판매채널)
                     for idx in indices:
                         df.at[idx, "거래처명"] = matched
+                        if "판매유형" in df.columns:
+                            df.at[idx, "판매유형"] = matched
+                        if "판매채널" in df.columns:
+                            df.at[idx, "판매채널"] = matched
 
                     # DB에 자동으로 매핑 추가 (한 번만)
                     db.add_mapping(seller_name, matched)
