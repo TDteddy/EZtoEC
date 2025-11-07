@@ -447,12 +447,13 @@ def save_to_excel(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
     print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건, 매입전표 {len(voucher_df)}건 저장 완료")
 
 
-def process_coupang_rocketgrowth(target_date: str) -> Dict[str, Any]:
+def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict[str, Any]:
     """
     쿠팡 로켓그로스 판매 데이터 처리 메인 함수
 
     Args:
         target_date: 판매일자 (YYYY-MM-DD)
+        max_retries: 최대 재시도 횟수 (웹 에디터 매핑 후 재검증)
 
     Returns:
         처리 결과
@@ -467,38 +468,123 @@ def process_coupang_rocketgrowth(target_date: str) -> Dict[str, Any]:
         "conversion": None
     }
 
-    # 1. 데이터 조회
-    print(f"\n[1단계] {target_date} 판매 데이터 조회 중...")
-    df = fetch_coupang_sales_data(target_date)
+    # ===== 데이터 조회 및 매핑 재시도 루프 =====
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt == 1:
+                print(f"\n[1단계] {target_date} 판매 데이터 조회 중...")
+                df = fetch_coupang_sales_data(target_date)
 
-    if df.empty:
-        print("❌ 조회된 데이터가 없습니다.")
-        result["fetch"] = {"success": False, "error": "No data"}
-        return result
+                if df.empty:
+                    print("❌ 조회된 데이터가 없습니다.")
+                    result["fetch"] = {"success": False, "error": "No data"}
+                    return {
+                        "sales": pd.DataFrame(),
+                        "purchase": pd.DataFrame(),
+                        "voucher": pd.DataFrame(),
+                        "result": result
+                    }
 
-    result["fetch"] = {"success": True, "count": len(df)}
+                result["fetch"] = {"success": True, "count": len(df)}
+            else:
+                print(f"\n[1단계-재시도 {attempt}/{max_retries}] 매핑 후 재검증 중...")
 
-    # 2. 상품 매핑 검증
-    print(f"\n[2단계] 상품 매핑 검증 중...")
-    df_mapped, pending_mappings = validate_and_map_products(df)
+            # 2. 상품 매핑 검증
+            print(f"\n[2단계] 상품 매핑 검증 중...")
+            df_mapped, pending_mappings = validate_and_map_products(df)
 
-    if pending_mappings:
-        print("\n" + "=" * 80)
-        print(f"⚠️  [수동 매핑 필요] 매핑되지 않은 상품: {len(pending_mappings)}건")
-        print("=" * 80)
+            if pending_mappings:
+                print("\n" + "=" * 80)
+                print(f"⚠️  [수동 매핑 필요] 매핑되지 않은 상품: {len(pending_mappings)}건")
+                print("=" * 80)
 
-        for p in pending_mappings:
-            print(f"\n  [{p['option_name']}] ({p['count']}건)")
-            if p.get("gpt_suggestion"):
-                print(f"    GPT 추천: {p['gpt_suggestion']} (x{p['gpt_multiplier']}, {p['gpt_brand']})")
-                print(f"    신뢰도: {p['confidence']:.0%}")
-            print(f"    샘플: {p['sample_data']}")
+                # 고유 상품 표시
+                unique_options = {}
+                for p in pending_mappings:
+                    option = p.get("option_name", "")
+                    if option not in unique_options:
+                        unique_options[option] = p
 
-        print("\n❌ 매핑이 필요한 상품이 있습니다.")
-        print("   coupang_product_mapping.py를 사용하여 매핑을 추가하세요.")
+                for option, info in unique_options.items():
+                    print(f"\n  - {option}")
+                    if info.get("gpt_suggestion"):
+                        print(f"    └ GPT 추천: {info['gpt_suggestion']} "
+                              f"(x{info['gpt_multiplier']}, {info['gpt_brand']}, "
+                              f"신뢰도: {info['confidence']:.0%})")
 
-        result["validation"] = {"success": False, "pending_count": len(pending_mappings)}
-        return result
+                print("\n❌ 업로드를 중단합니다.")
+                print("   DB에 없는 상품이 포함된 데이터는 업로드할 수 없습니다.")
+                print("\n🌐 웹 에디터를 실행합니다...")
+                print("   브라우저에서 http://localhost:5001 접속하여 상품을 매핑하세요.\n")
+
+                try:
+                    from coupang_product_editor import start_editor
+                    import threading
+
+                    # 웹 에디터를 백그라운드 스레드로 실행
+                    editor_thread = threading.Thread(
+                        target=start_editor,
+                        kwargs={"pending_list": pending_mappings, "port": 5001, "debug": False},
+                        daemon=True
+                    )
+                    editor_thread.start()
+
+                    # 사용자가 웹에서 매핑 완료 후 Enter를 누르기를 기다림
+                    input("\n매핑을 완료했다면 Enter를 눌러 계속 진행하세요...")
+
+                    print("\n✅ 매핑을 저장했습니다.")
+                    print("   → 데이터를 다시 검증합니다...\n")
+
+                    # 루프를 계속해서 재검증 시도
+                    continue
+
+                except KeyboardInterrupt:
+                    print("\n⚠️  사용자가 중단했습니다.")
+                    result["validation"] = {"success": False, "pending_count": len(pending_mappings)}
+                    return {
+                        "sales": pd.DataFrame(),
+                        "purchase": pd.DataFrame(),
+                        "voucher": pd.DataFrame(),
+                        "result": result
+                    }
+                except Exception as e:
+                    print(f"\n⚠️  웹 에디터 실행 실패: {e}")
+                    print("   수동으로 coupang_product_mapping.py를 사용하여 매핑을 추가하세요.")
+                    print("   매핑 완료 후 프로그램을 다시 실행하세요.")
+                    result["validation"] = {"success": False, "pending_count": len(pending_mappings)}
+                    return {
+                        "sales": pd.DataFrame(),
+                        "purchase": pd.DataFrame(),
+                        "voucher": pd.DataFrame(),
+                        "result": result
+                    }
+            else:
+                # 모든 매핑이 완료됨 - 루프 탈출하고 변환 진행
+                print("\n✅ 모든 상품 검증 완료!")
+                break
+
+        except Exception as e:
+            print(f"❌ 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            result["validation"] = {"success": False, "error": str(e)}
+            return {
+                "sales": pd.DataFrame(),
+                "purchase": pd.DataFrame(),
+                "voucher": pd.DataFrame(),
+                "result": result
+            }
+    else:
+        # 최대 재시도 횟수 초과
+        print(f"\n❌ 최대 재시도 횟수({max_retries}회)를 초과했습니다.")
+        print("   매핑을 완료한 후 프로그램을 다시 실행하세요.")
+        result["validation"] = {"success": False, "error": "Max retries exceeded"}
+        return {
+            "sales": pd.DataFrame(),
+            "purchase": pd.DataFrame(),
+            "voucher": pd.DataFrame(),
+            "result": result
+        }
 
     result["validation"] = {"success": True}
 
