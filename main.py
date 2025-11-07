@@ -459,6 +459,223 @@ def save_purchase(session_id: str, purchase_df: pd.DataFrame,
     return result
 
 
+def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
+                              upload_purchase: bool = True, save_excel: bool = True) -> dict:
+    """
+    쿠팡 로켓그로스 데이터 처리 → 이카운트 API 업로드
+
+    Args:
+        target_date: 판매일자 (YYYY-MM-DD)
+        upload_sales: 판매 데이터 업로드 여부
+        upload_purchase: 매입 데이터 업로드 여부
+        save_excel: 엑셀 파일로도 저장할지 여부
+
+    Returns:
+        처리 결과 딕셔너리
+    """
+    from coupang_rocketgrowth import process_coupang_rocketgrowth
+
+    print("=" * 80)
+    print(f"쿠팡 로켓그로스 → 이카운트 통합 처리: {target_date}")
+    print("=" * 80)
+
+    results = {
+        "coupang_processing": None,
+        "login": None,
+        "sales_upload": None,
+        "purchase_upload": None
+    }
+
+    # ===== 1단계: 쿠팡 데이터 처리 =====
+    print(f"\n[1단계] 쿠팡 로켓그로스 데이터 처리 중...")
+    try:
+        coupang_result = process_coupang_rocketgrowth(target_date)
+
+        if not coupang_result["result"]["conversion"]["success"]:
+            print("❌ 쿠팡 데이터 처리 실패")
+            results["coupang_processing"] = {"success": False}
+            return results
+
+        sales_df = coupang_result["sales"]
+        purchase_df = coupang_result["purchase"]
+        voucher_df = coupang_result["voucher"]
+
+        results["coupang_processing"] = {
+            "success": True,
+            "sales_count": len(sales_df),
+            "purchase_count": len(purchase_df),
+            "voucher_count": len(voucher_df)
+        }
+
+        print(f"✅ 처리 완료:")
+        print(f"  - 판매: {len(sales_df)}건")
+        print(f"  - 매입: {len(purchase_df)}건")
+        print(f"  - 매입전표: {len(voucher_df)}건")
+
+    except Exception as e:
+        print(f"❌ 쿠팡 데이터 처리 실패: {e}")
+        results["coupang_processing"] = {"success": False, "error": str(e)}
+        return results
+
+    # 선택적: 엑셀 파일로 저장은 이미 process_coupang_rocketgrowth에서 완료됨
+
+    # ===== 2단계: 이카운트 로그인 =====
+    print("\n[2단계] 이카운트 로그인 중...")
+    try:
+        login_result = login_ecount(
+            com_code=COM_CODE,
+            user_id=USER_ID,
+            api_cert_key=API_CERT_KEY,
+            lan_type=LAN_TYPE,
+            zone=ZONE,
+            test=USE_TEST_SERVER
+        )
+
+        # SESSION_ID 추출
+        data = login_result.get("Data", {}) or {}
+        datas = data.get("Datas", {}) or {}
+        session_id = datas.get("SESSION_ID")
+
+        if not session_id:
+            print("❌ SESSION_ID를 찾을 수 없습니다.")
+            results["login"] = {"success": False, "error": "No SESSION_ID"}
+            return results
+
+        results["login"] = {"success": True, "session_id": session_id}
+        print(f"✅ 로그인 성공: SESSION_ID={session_id[:20]}...")
+
+    except Exception as e:
+        print(f"❌ 로그인 실패: {e}")
+        results["login"] = {"success": False, "error": str(e)}
+        return results
+
+    # ===== 3단계: 판매 데이터 업로드 =====
+    if upload_sales and not sales_df.empty:
+        print(f"\n[3단계] 판매 데이터 업로드 중... (총 {len(sales_df)}건)")
+
+        # 전표번호별로 300건씩 배치 분할
+        sales_batches = split_dataframe_into_batches(sales_df, batch_size=300)
+        total_batches = len(sales_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(sales_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                sale_result = save_sale(
+                    session_id=session_id,
+                    sales_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                result_data = sale_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                # 실패 상세
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+
+            results["sales_upload"] = {
+                "success": True,
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos
+            }
+
+            print(f"\n✅ 판매 업로드 완료:")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+
+        except Exception as e:
+            print(f"❌ 판매 업로드 실패: {e}")
+            results["sales_upload"] = {"success": False, "error": str(e)}
+
+    # ===== 4단계: 구매 데이터 업로드 =====
+    if upload_purchase and not purchase_df.empty:
+        print(f"\n[4단계] 구매 데이터 업로드 중... (총 {len(purchase_df)}건)")
+
+        purchase_batches = split_dataframe_into_batches(purchase_df, batch_size=300)
+        total_batches = len(purchase_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(purchase_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                purchase_result = save_purchase(
+                    session_id=session_id,
+                    purchase_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                result_data = purchase_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+
+            results["purchase_upload"] = {
+                "success": True,
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos
+            }
+
+            print(f"\n✅ 구매 업로드 완료:")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+
+        except Exception as e:
+            print(f"❌ 구매 업로드 실패: {e}")
+            results["purchase_upload"] = {"success": False, "error": str(e)}
+
+    print("\n" + "=" * 80)
+    print("쿠팡 로켓그로스 통합 처리 완료")
+    print("=" * 80)
+
+    return results
+
+
 def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
                        save_excel: bool = True) -> dict:
     """
@@ -852,6 +1069,54 @@ if __name__ == "__main__":
 
         except Exception as e:
             print(f"\n❌ 변환 실패: {e}")
+
+    elif mode == "coupang":
+        # 쿠팡 로켓그로스 처리
+        print("=" * 80)
+        print("쿠팡 로켓그로스 판매 데이터 처리")
+        print("=" * 80)
+
+        # 날짜 입력 받기
+        if len(sys.argv) > 2:
+            target_date = sys.argv[2]
+        else:
+            target_date = input("\n처리할 날짜를 입력하세요 (YYYY-MM-DD): ").strip()
+
+        if not target_date:
+            print("❌ 날짜를 입력하지 않았습니다.")
+            sys.exit(1)
+
+        try:
+            results = upload_coupang_to_ecount(target_date)
+
+            # 최종 요약
+            print("\n" + "=" * 80)
+            print("처리 결과 요약")
+            print("=" * 80)
+
+            if results["coupang_processing"] and results["coupang_processing"]["success"]:
+                print(f"✅ 쿠팡 데이터 처리: 성공")
+
+            if results["login"] and results["login"]["success"]:
+                print(f"✅ 로그인: 성공")
+
+            if results["sales_upload"]:
+                if results["sales_upload"]["success"]:
+                    print(f"✅ 판매 업로드: {results['sales_upload']['success_count']}건 성공")
+                else:
+                    print(f"❌ 판매 업로드: 실패")
+
+            if results["purchase_upload"]:
+                if results["purchase_upload"]["success"]:
+                    print(f"✅ 구매 업로드: {results['purchase_upload']['success_count']}건 성공")
+                else:
+                    print(f"❌ 구매 업로드: 실패")
+
+        except Exception as e:
+            print(f"\n❌ 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
     else:
         # 통합 처리 (기본)
