@@ -99,6 +99,7 @@ class CoupangProductMappingDB:
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     product_name VARCHAR(500) NOT NULL UNIQUE COMMENT '이지어드민 스탠다드 상품명',
                     brand VARCHAR(100) NOT NULL COMMENT '브랜드 (닥터시드/딸로/테르스/에이더)',
+                    cost_price DECIMAL(10, 2) DEFAULT 0 COMMENT '원가 (부가세 포함)',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_product_name (product_name),
@@ -107,6 +108,23 @@ class CoupangProductMappingDB:
                 """
                 self.cursor.execute(create_table_sql)
                 print(f"✅ standard_products 테이블 생성 완료")
+            else:
+                # 기존 테이블이 있는 경우 cost_price 컬럼 추가 (없으면)
+                self.cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = 'standard_products' AND column_name = 'cost_price'
+                """, (self.database,))
+
+                col_result = self.cursor.fetchone()
+                if col_result['count'] == 0:
+                    print(f"[INFO] standard_products 테이블에 cost_price 컬럼 추가 중...")
+                    self.cursor.execute("""
+                        ALTER TABLE standard_products
+                        ADD COLUMN cost_price DECIMAL(10, 2) DEFAULT 0 COMMENT '원가 (부가세 포함)'
+                    """)
+                    self.conn.commit()
+                    print(f"✅ cost_price 컬럼 추가 완료")
 
             # 2. 쿠팡-이지어드민 매핑 테이블
             self.cursor.execute("""
@@ -151,24 +169,25 @@ class CoupangProductMappingDB:
 
     # ===== 스탠다드 상품 관리 =====
 
-    def add_standard_product(self, product_name: str, brand: str) -> bool:
+    def add_standard_product(self, product_name: str, brand: str, cost_price: float = 0) -> bool:
         """
         이지어드민 스탠다드 상품 추가
 
         Args:
             product_name: 상품명
             brand: 브랜드 (닥터시드/딸로/테르스/에이더)
+            cost_price: 원가 (부가세 포함, 기본값 0)
 
         Returns:
             성공 여부
         """
         try:
             self.cursor.execute(
-                "INSERT INTO standard_products (product_name, brand) VALUES (%s, %s)",
-                (product_name.strip(), brand.strip())
+                "INSERT INTO standard_products (product_name, brand, cost_price) VALUES (%s, %s, %s)",
+                (product_name.strip(), brand.strip(), cost_price)
             )
             self.conn.commit()
-            print(f"✅ 스탠다드 상품 추가: '{product_name}' ({brand})")
+            print(f"✅ 스탠다드 상품 추가: '{product_name}' ({brand}, 원가: {cost_price:,.0f}원)")
             return True
         except Error as e:
             if "Duplicate entry" in str(e):
@@ -182,11 +201,11 @@ class CoupangProductMappingDB:
         모든 스탠다드 상품 조회
 
         Returns:
-            상품 리스트 [{id, product_name, brand, created_at}]
+            상품 리스트 [{id, product_name, brand, cost_price, created_at}]
         """
         try:
             self.cursor.execute(
-                "SELECT id, product_name, brand, created_at FROM standard_products ORDER BY brand, product_name"
+                "SELECT id, product_name, brand, cost_price, created_at FROM standard_products ORDER BY brand, product_name"
             )
             return self.cursor.fetchall()
         except Error as e:
@@ -205,7 +224,7 @@ class CoupangProductMappingDB:
         """
         try:
             self.cursor.execute(
-                "SELECT id, product_name, brand, created_at FROM standard_products WHERE brand = %s ORDER BY product_name",
+                "SELECT id, product_name, brand, cost_price, created_at FROM standard_products WHERE brand = %s ORDER BY product_name",
                 (brand,)
             )
             return self.cursor.fetchall()
@@ -248,19 +267,24 @@ class CoupangProductMappingDB:
 
     def get_mapping(self, coupang_option_name: str) -> Optional[Dict]:
         """
-        쿠팡 옵션명에 대한 매핑 조회
+        쿠팡 옵션명에 대한 매핑 조회 (원가 정보 포함)
 
         Args:
             coupang_option_name: 쿠팡 옵션명
 
         Returns:
-            매핑 정보 {standard_product_name, quantity_multiplier, brand} 또는 None
+            매핑 정보 {standard_product_name, quantity_multiplier, brand, cost_price} 또는 None
         """
         try:
             self.cursor.execute(
-                """SELECT standard_product_name, quantity_multiplier, brand
-                   FROM coupang_product_mapping
-                   WHERE coupang_option_name = %s""",
+                """SELECT
+                       m.standard_product_name,
+                       m.quantity_multiplier,
+                       m.brand,
+                       COALESCE(p.cost_price, 0) as cost_price
+                   FROM coupang_product_mapping m
+                   LEFT JOIN standard_products p ON m.standard_product_name = p.product_name
+                   WHERE m.coupang_option_name = %s""",
                 (coupang_option_name,)
             )
             row = self.cursor.fetchone()

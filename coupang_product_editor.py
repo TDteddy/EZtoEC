@@ -319,8 +319,9 @@ EDITOR_TEMPLATE = """
                             {% for product in standard_products %}
                             <option value="{{ product.product_name }}"
                                     data-brand="{{ product.brand }}"
+                                    data-cost-price="{{ product.cost_price }}"
                                     {% if item.gpt_suggestion == product.product_name %}selected{% endif %}>
-                                {{ product.product_name }} ({{ product.brand }})
+                                {{ product.product_name }} ({{ product.brand }}, 원가: {{ "{:,.0f}".format(product.cost_price) }}원)
                             </option>
                             {% endfor %}
                         </select>
@@ -349,6 +350,20 @@ EDITOR_TEMPLATE = """
                             </select>
                         </div>
                     </div>
+
+                    <div class="form-group">
+                        <label for="cost_price_{{ loop.index0 }}">원가 (부가세 포함)</label>
+                        <input type="number"
+                               class="form-control"
+                               id="cost_price_{{ loop.index0 }}"
+                               name="cost_price_{{ loop.index0 }}"
+                               min="0"
+                               step="0.01"
+                               placeholder="원가 입력"
+                               readonly
+                               style="background-color: #f8f9fa;">
+                        <small style="color: #6c757d;">상품 선택 시 자동으로 채워집니다 (읽기 전용)</small>
+                    </div>
                 </div>
                 {% endfor %}
 
@@ -372,15 +387,29 @@ EDITOR_TEMPLATE = """
     </div>
 
     <script>
-        // 스탠다드 상품 선택 시 브랜드 자동 설정
+        // 스탠다드 상품 선택 시 브랜드 및 원가 자동 설정
         document.querySelectorAll('select[id^="standard_"]').forEach((select, index) => {
             select.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
                 const brand = selectedOption.getAttribute('data-brand');
+                const costPrice = selectedOption.getAttribute('data-cost-price');
+
                 if (brand) {
                     document.getElementById('brand_' + index).value = brand;
                 }
+                if (costPrice) {
+                    document.getElementById('cost_price_' + index).value = costPrice;
+                }
             });
+
+            // 페이지 로드 시 이미 선택된 상품이 있으면 원가 자동 채우기
+            if (select.value) {
+                const selectedOption = select.options[select.selectedIndex];
+                const costPrice = selectedOption.getAttribute('data-cost-price');
+                if (costPrice) {
+                    document.getElementById('cost_price_' + index).value = costPrice;
+                }
+            }
         });
     </script>
 </body>
