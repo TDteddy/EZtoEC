@@ -392,11 +392,13 @@ class CoupangProductMappingDB:
 
 이 쿠팡 옵션명이 어떤 스탠다드 상품에 해당하는지 분석하고, 다음 정보를 JSON 형식으로 반환해주세요:
 
-1. standard_product_name: 매칭되는 스탠다드 상품명 (정확히 위 목록에서 선택)
+1. standard_product_name: 매칭되는 스탠다드 상품명 (위 목록에서 "-" 다음의 상품명만 선택, "(브랜드: ...)" 부분은 제외)
 2. quantity_multiplier: 수량 배수 (예: "3개입"이면 3, "5+1"이면 6, "1개"면 1)
 3. brand: 브랜드명 (닥터시드/딸로/테르스/에이더 중 하나)
 4. confidence: 매칭 신뢰도 (0.0 ~ 1.0)
 5. reason: 매칭 이유 설명
+
+**중요: standard_product_name에는 상품명만 입력하고 "(브랜드: ...)" 같은 부가 정보는 절대 포함하지 마세요.**
 
 응답 형식:
 {{
@@ -406,6 +408,10 @@ class CoupangProductMappingDB:
   "confidence": 0.0~1.0,
   "reason": "설명"
 }}
+
+예시:
+목록에 "- ADWRB01 손목 보호대 T1 (브랜드: 에이더)"가 있다면
+standard_product_name은 "ADWRB01 손목 보호대 T1"만 반환해야 합니다.
 
 매칭이 불확실하면 confidence를 낮게 설정하세요.
 매칭할 수 없으면 null을 반환하세요.
