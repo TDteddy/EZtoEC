@@ -108,6 +108,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
         df["quantity_multiplier"] = 1
         df["brand"] = ""
         df["actual_quantity"] = 0
+        df["cost_price"] = 0.0
 
         print(f"\n[검증] 쿠팡 상품 {len(df)}건 매핑 확인 중...")
 
@@ -127,8 +128,9 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
             if mapping:
                 # 매핑 존재
+                cost_price = float(mapping.get("cost_price", 0))
                 print(f"  ✅ [{option_name}] → {mapping['standard_product_name']} "
-                      f"(x{mapping['quantity_multiplier']}, {mapping['brand']})")
+                      f"(x{mapping['quantity_multiplier']}, {mapping['brand']}, 원가: {cost_price:,.0f}원)")
 
                 # 모든 해당 행 업데이트
                 for idx in indices:
@@ -137,6 +139,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                     df.at[idx, "quantity_multiplier"] = mapping["quantity_multiplier"]
                     df.at[idx, "brand"] = mapping["brand"]
                     df.at[idx, "actual_quantity"] = qty_net * mapping["quantity_multiplier"]
+                    df.at[idx, "cost_price"] = cost_price
             else:
                 # 매핑 없음 - GPT 자동 매칭 시도
                 print(f"  🤖 [{option_name}] GPT 자동 매칭 시도 중...")
@@ -157,6 +160,10 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                         brand=gpt_result["brand"]
                     )
 
+                    # 원가 정보 조회 (방금 저장한 매핑에서)
+                    saved_mapping = db.get_mapping(option_name)
+                    cost_price = float(saved_mapping.get("cost_price", 0)) if saved_mapping else 0.0
+
                     # 모든 해당 행 업데이트
                     for idx in indices:
                         qty_net = int(df.at[idx, "Qty_sales_net_at_sales_report_coupang_2p"] or 0)
@@ -164,6 +171,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                         df.at[idx, "quantity_multiplier"] = gpt_result["quantity_multiplier"]
                         df.at[idx, "brand"] = gpt_result["brand"]
                         df.at[idx, "actual_quantity"] = qty_net * gpt_result["quantity_multiplier"]
+                        df.at[idx, "cost_price"] = cost_price
                 else:
                     # 신뢰도 낮거나 실패 - 수동 처리 필요
                     confidence = gpt_result.get("confidence", 0) if gpt_result else 0
@@ -267,16 +275,20 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
 
     sales_df = pd.DataFrame(sales_list)
 
-    # 매입 데이터도 동일하게 생성 (구매 원가 기준)
+    # 매입 데이터 생성 (원가 기준)
     purchase_list = []
     for _, row in df_mapped.iterrows():
         brand = row["brand"]
         project = f"{brand}_국내"
 
-        # 여기서는 매출액을 그대로 매입원가로 사용 (실제로는 원가 DB가 있어야 함)
-        total_amount = int(row.get("Sales_total_amount_at_sales_report_coupang_2p", 0) or 0)
-        supply_amt = int(total_amount / 1.1)
-        vat_amt = total_amount - supply_amt
+        # DB에서 조회한 원가 사용 (부가세 포함)
+        cost_price = float(row.get("cost_price", 0))
+        actual_qty = row["actual_quantity"]
+
+        # 총 원가 = 단가 × 수량
+        total_cost = int(cost_price * actual_qty)
+        supply_amt = int(total_cost / 1.1)
+        vat_amt = total_cost - supply_amt
 
         purchase_list.append({
             "일자": date_obj,
@@ -291,8 +303,8 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
             "품목코드": "",
             "품목명": row["standard_product_name"],
             "규격명": "",
-            "수량": row["actual_quantity"],
-            "단가": int(total_amount / row["actual_quantity"]) if row["actual_quantity"] > 0 else 0,
+            "수량": actual_qty,
+            "단가": int(cost_price),
             "외화금액": "",
             "공급가액": supply_amt,
             "부가세": vat_amt,
