@@ -246,7 +246,7 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
             "주문번호": "",
             "상품코드": "",
             "품목명": row["standard_product_name"],
-            "옵션": row.get("Name_option_coupang_at_sales_report_coupang_2p", ""),
+            "옵션": "",
             "규격": "",
             "수량": row["actual_quantity"],
             "단가(vat포함)": int(total_amount / row["actual_quantity"]) if row["actual_quantity"] > 0 else 0,
