@@ -3,6 +3,8 @@
 
 이지어드민에서 다운로드한 보고서를 이카운트 판매/매입/매입전표 양식으로 변환하고, 자동으로 이카운트 API에 업로드하는 프로그램입니다.
 
+**NEW! 쿠팡 로켓그로스 판매 데이터 처리 지원** 🎉
+
 ## 🌟 주요 기능
 
 ### 1. **완전 자동화 워크플로우**
@@ -12,29 +14,38 @@
 - **매핑 후 자동 재검증**: 웹 에디터에서 매핑 완료 후 Enter만 누르면 자동으로 재검증 및 업로드 진행 (프로그램 재시작 불필요)
 - **배치 자동 분할**: 300건 초과 시 전표번호별로 자동 분할 업로드
 
-### 2. **지능형 데이터 검증**
+### 2. **쿠팡 로켓그로스 데이터 처리** 🆕
+```
+sales DB 조회 → 상품 매핑 → GPT 자동 매칭 → 수량 계산 → Ecount API 업로드 → 완료
+```
+- **별도 DB 조회**: `sales.sales_report_coupang_2p` 테이블에서 판매 데이터 직접 조회
+- **GPT 상품 매칭**: 쿠팡 옵션명을 이지어드민 스탠다드 상품과 자동 매칭
+- **수량 배수 처리**: N개 묶음 상품 자동 계산 (예: 3개입 → 실제 3개 판매)
+- **브랜드 자동 인식**: 상품명 기반 브랜드 자동 분류
+
+### 3. **지능형 데이터 검증**
 - **수동발주 케이스 자동 검증**: 코드10 필드의 판매처 이름을 DB와 비교
 - **GPT 기반 오타 교정**: AI가 자동으로 유사한 판매처 이름 찾기 (신뢰도 70% 이상)
 - **웹 에디터 통합**: 정제 불가 데이터는 웹 UI에서 수동 매핑
 - **빈 값 사전 검증**: 수동발주의 코드10 빈 값은 프로그램 실행 전에 체크하여 조기 차단
 
-### 3. **스마트 브랜드 인식**
+### 4. **스마트 브랜드 인식**
 - **브라이즈 판매처 특수 처리**: 상품명에서 브랜드 추출
 - **에이더 정규식 패턴**: `5자 알파벳 + 2자 숫자`로 시작하면 자동 인식 (예: ABCDE12)
 - **키워드 매칭**: 딸로, 닥터시드, 테르스 자동 인식
 
-### 4. **전표 자동 그룹화**
+### 5. **전표 자동 그룹화**
 - **일자 + 브랜드 + 판매채널** 기준으로 자동 그룹화
 - 같은 날짜의 같은 브랜드/판매채널만 하나의 전표로 묶음
 - 전표묶음순번 자동 할당 (각 배치마다 1부터 시작)
 
-### 5. **매입전표 자동 생성**
+### 6. **매입전표 자동 생성**
 - rates.yml 기반 운반비/수수료 자동 계산
 - 브랜드×판매채널별 요율 적용
 
-### 6. **특수 케이스 자동 처리**
+### 7. **특수 케이스 자동 처리**
 - **타사 재고 채움**: 성원글로벌, 에이원비앤에이치, 글로벌엠지코리아 → 매출 0원 처리
-- **제외 판매처**: 로켓그로스, 전용수동발주 에이더 → 자동 제외
+- **제외 판매처**: 로켓그로스, 전용수동발주 에이더 → 자동 제외 (이지어드민 처리 시)
 - **배치 업로드**: 이카운트 API 제한(300건)에 맞춰 자동 분할
 
 ---
@@ -182,15 +193,23 @@ python main.py
 ### 실행 모드
 
 ```bash
-# 1. 완전한 워크플로우 (기본, 권장)
+# 1. 완전한 워크플로우 - 이지어드민 (기본, 권장)
 python main.py
 # → 변환 → 검증 → (웹 에디터) → 자동 재검증 → API 업로드 → 엑셀 저장
 
-# 2. 로그인만 테스트
+# 2. 쿠팡 로켓그로스 처리 🆕
+python main.py coupang 2025-01-15
+# → DB 조회 → 상품 매핑 → GPT 자동 매칭 → API 업로드 → 엑셀 저장
+
+# 또는 대화형으로
+python main.py coupang
+# → 날짜 입력 프롬프트 (YYYY-MM-DD)
+
+# 3. 로그인만 테스트
 python main.py login
 # → Ecount 로그인 테스트, SESSION_ID 확인
 
-# 3. 엑셀 변환만 (API 업로드 제외)
+# 4. 엑셀 변환만 (API 업로드 제외)
 python main.py convert
 # → 변환 → 검증 → (웹 에디터) → 엑셀 저장
 ```
@@ -658,6 +677,170 @@ ERROR: 300건 초과
 
 ---
 
+## 🚀 쿠팡 로켓그로스 처리 가이드
+
+### 개요
+이지어드민에서는 쿠팡 로켓그로스 판매 건이 보이지 않기 때문에, 별도 DB(`sales.sales_report_coupang_2p`)에서 판매 데이터를 직접 조회하여 처리합니다.
+
+### 워크플로우
+```
+1. sales DB에서 날짜별 판매 데이터 조회
+   ↓
+2. 쿠팡 옵션명 → 스탠다드 상품 매핑 확인
+   ├─ DB에 매핑 있음 → 바로 사용 ✅
+   └─ DB에 매핑 없음 → GPT 자동 매칭
+       ├─ 신뢰도 ≥ 70% → 자동 저장 ✅
+       └─ 신뢰도 < 70% → 수동 매핑 필요 ⚠️
+   ↓
+3. 실제 판매수량 계산
+   실제수량 = 주문수량 × 수량배수
+   ↓
+4. 이카운트 형식 변환 (판매/매입/매입전표)
+   ↓
+5. 이카운트 API 업로드
+```
+
+### 사용 방법
+
+#### 1. 쿠팡 데이터 처리 및 업로드
+```bash
+# 날짜 지정하여 실행
+python main.py coupang 2025-01-15
+
+# 또는 대화형으로
+python main.py coupang
+# → "처리할 날짜를 입력하세요 (YYYY-MM-DD):" 프롬프트
+```
+
+#### 2. 스탠다드 상품 목록 등록
+```python
+from coupang_product_mapping import CoupangProductMappingDB
+
+with CoupangProductMappingDB() as db:
+    # 스탠다드 상품 추가
+    db.add_standard_product("닥터시드 비타민C 1000mg", "닥터시드")
+    db.add_standard_product("딸로 컬러케어 샴푸 500ml", "딸로")
+    db.add_standard_product("테르스 오메가3", "테르스")
+```
+
+#### 3. 수동 매핑 추가 (GPT 실패 시)
+```python
+from coupang_product_mapping import CoupangProductMappingDB
+
+with CoupangProductMappingDB() as db:
+    db.add_mapping(
+        coupang_option_name="닥터시드 비타민C 3개입",
+        standard_product_name="닥터시드 비타민C 1000mg",
+        quantity_multiplier=3,  # 3개 묶음
+        brand="닥터시드"
+    )
+
+    db.add_mapping(
+        coupang_option_name="딸로 샴푸 5+1 기획세트",
+        standard_product_name="딸로 컬러케어 샴푸 500ml",
+        quantity_multiplier=6,  # 5+1 = 6개
+        brand="딸로"
+    )
+```
+
+#### 4. 매핑 목록 조회
+```python
+from coupang_product_mapping import CoupangProductMappingDB
+
+with CoupangProductMappingDB() as db:
+    # 모든 매핑 조회
+    mappings = db.get_all_mappings()
+    for m in mappings:
+        print(f"{m['coupang_option_name']} → {m['standard_product_name']} (x{m['quantity_multiplier']})")
+
+    # 특정 매핑 조회
+    mapping = db.get_mapping("닥터시드 비타민C 3개입")
+    if mapping:
+        print(f"상품: {mapping['standard_product_name']}")
+        print(f"배수: {mapping['quantity_multiplier']}")
+        print(f"브랜드: {mapping['brand']}")
+```
+
+### 데이터베이스 스키마
+
+#### standard_products (스탠다드 상품 목록)
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | INT | AUTO_INCREMENT PRIMARY KEY |
+| product_name | VARCHAR(500) | 이지어드민 스탠다드 상품명 (UNIQUE) |
+| brand | VARCHAR(100) | 브랜드 (닥터시드/딸로/테르스/에이더) |
+| created_at | TIMESTAMP | 생성일시 |
+| updated_at | TIMESTAMP | 수정일시 |
+
+#### coupang_product_mapping (쿠팡-이지어드민 매핑)
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | INT | AUTO_INCREMENT PRIMARY KEY |
+| coupang_option_name | VARCHAR(500) | 쿠팡 옵션명 (UNIQUE) |
+| standard_product_name | VARCHAR(500) | 이지어드민 스탠다드 상품명 |
+| quantity_multiplier | INT | 수량 배수 (N개 묶음) |
+| brand | VARCHAR(100) | 브랜드 |
+| created_at | TIMESTAMP | 생성일시 |
+| updated_at | TIMESTAMP | 수정일시 |
+
+### GPT 자동 매칭 동작 방식
+1. 쿠팡 옵션명 분석
+2. 스탠다드 상품 목록과 비교
+3. 가장 유사한 상품 찾기
+4. 수량 배수 자동 계산 (예: "3개입" → 3, "5+1" → 6)
+5. 브랜드 자동 인식
+6. 신뢰도 계산 (0.0 ~ 1.0)
+7. 신뢰도 ≥ 70% → 자동 저장, < 70% → 수동 매핑 필요
+
+### 수량 배수 처리 예시
+```
+쿠팡 옵션: "비타민C 1000mg 3개입"
+주문수량: 2개
+수량배수: 3
+
+→ 실제 판매수량 = 2 × 3 = 6개
+→ 이카운트: "비타민C 1000mg" 6개 판매로 기록
+```
+
+### rates.yml 설정
+```yaml
+닥터시드_국내:
+  로켓그로스:
+    shipping: 0.13    # 운송료 13%
+    commission: 0.06  # 수수료 6%
+
+딸로_국내:
+  로켓그로스:
+    shipping: 0.13
+    commission: 0.06
+
+테르스_국내:
+  로켓그로스:
+    shipping: 0.13
+    commission: 0.06
+
+에이더_국내:
+  로켓그로스:
+    shipping: 0.13
+    commission: 0.06
+```
+
+### 생성되는 파일
+- `output_coupang_rocketgrowth.xlsx`: 변환된 데이터
+  - 판매 시트: 로켓그로스 판매 데이터
+  - 매입 시트: 로켓그로스 매입 데이터
+  - 매입전표 시트: 수수료/운송료
+
+### 고정값
+쿠팡 로켓그로스 데이터는 다음 값으로 고정됩니다:
+- **거래처명**: 로켓그로스
+- **판매채널**: 로켓그로스
+- **판매유형**: 로켓그로스
+- **프로젝트**: {브랜드}_국내 (예: 닥터시드_국내)
+- **창고**: 200
+
+---
+
 ## 📝 라이선스
 
 This project is for internal use only.
@@ -672,7 +855,16 @@ This project is for internal use only.
 
 ## 📌 버전 히스토리
 
-### v1.3.0 (Latest)
+### v1.4.0 (Latest) 🆕
+- ✨ 쿠팡 로켓그로스 판매 데이터 처리
+- ✨ 상품 매핑 DB 자동 생성 (standard_products, coupang_product_mapping)
+- ✨ GPT 기반 상품 자동 매칭 (신뢰도 70% 이상)
+- ✨ 수량 배수 처리 (N개 묶음 상품 자동 계산)
+- ✨ sales DB에서 직접 조회 (sales.sales_report_coupang_2p)
+- 🐛 판매유형/판매채널 필드도 스탠다드 이름으로 업데이트
+- 🐛 날짜 형식 수정 (YYYYMMDD, datetime.date 처리)
+
+### v1.3.0
 - ✨ 매핑 완료 후 자동 재검증 및 업로드 (프로그램 재시작 불필요)
 - ✨ 배치 자동 분할 (이카운트 API 300건 제한 대응)
 - ✨ 전표번호에 날짜 추가 (일자+브랜드+판매채널)
