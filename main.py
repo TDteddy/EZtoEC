@@ -459,6 +459,179 @@ def save_purchase(session_id: str, purchase_df: pd.DataFrame,
     return result
 
 
+def upload_dataframes_to_ecount(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
+                                 description: str = "") -> dict:
+    """
+    이미 준비된 DataFrame을 이카운트 API에 업로드
+
+    Args:
+        sales_df: 판매 데이터 DataFrame
+        purchase_df: 매입 데이터 DataFrame
+        description: 업로드 설명 (로그용)
+
+    Returns:
+        업로드 결과 딕셔너리
+    """
+    results = {
+        "login": None,
+        "sales_upload": None,
+        "purchase_upload": None
+    }
+
+    # ===== 1단계: 이카운트 로그인 =====
+    print(f"\n[1단계] 이카운트 로그인 중...")
+    try:
+        login_result = login_ecount(
+            com_code=COM_CODE,
+            user_id=USER_ID,
+            api_cert_key=API_CERT_KEY,
+            lan_type=LAN_TYPE,
+            zone=ZONE,
+            test=USE_TEST_SERVER
+        )
+
+        # SESSION_ID 추출
+        data = login_result.get("Data", {}) or {}
+        datas = data.get("Datas", {}) or {}
+        session_id = datas.get("SESSION_ID")
+
+        if not session_id:
+            print("❌ SESSION_ID를 찾을 수 없습니다.")
+            results["login"] = {"success": False, "error": "No SESSION_ID"}
+            return results
+
+        results["login"] = {"success": True, "session_id": session_id}
+        print(f"✅ 로그인 성공: SESSION_ID={session_id[:20]}...")
+
+    except Exception as e:
+        print(f"❌ 로그인 실패: {e}")
+        results["login"] = {"success": False, "error": str(e)}
+        return results
+
+    # ===== 2단계: 판매 데이터 업로드 =====
+    if not sales_df.empty:
+        print(f"\n[2단계] 판매 데이터 업로드 중... (총 {len(sales_df)}건)")
+
+        # 전표번호별로 300건씩 배치 분할
+        sales_batches = split_dataframe_into_batches(sales_df, batch_size=300)
+        total_batches = len(sales_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(sales_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                sale_result = save_sale(
+                    session_id=session_id,
+                    sales_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                result_data = sale_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                # 실패 상세
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+
+            results["sales_upload"] = {
+                "success": True,
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos
+            }
+
+            print(f"\n✅ 판매 업로드 완료:")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+
+        except Exception as e:
+            print(f"❌ 판매 업로드 실패: {e}")
+            results["sales_upload"] = {"success": False, "error": str(e)}
+
+    # ===== 3단계: 구매 데이터 업로드 =====
+    if not purchase_df.empty:
+        print(f"\n[3단계] 구매 데이터 업로드 중... (총 {len(purchase_df)}건)")
+
+        purchase_batches = split_dataframe_into_batches(purchase_df, batch_size=300)
+        total_batches = len(purchase_batches)
+
+        if total_batches > 1:
+            print(f"  ⚙️  이카운트 API 제한(300건)으로 인해 {total_batches}개 배치로 분할하여 업로드합니다.")
+
+        total_success_cnt = 0
+        total_fail_cnt = 0
+        all_slip_nos = []
+
+        try:
+            for batch_idx, batch_df in enumerate(purchase_batches, 1):
+                if total_batches > 1:
+                    print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+                purchase_result = save_purchase(
+                    session_id=session_id,
+                    purchase_df=batch_df,
+                    zone=ZONE,
+                    test=USE_TEST_SERVER
+                )
+
+                result_data = purchase_result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if total_batches > 1:
+                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                # 실패 상세
+                if fail_cnt > 0:
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+
+            results["purchase_upload"] = {
+                "success": True,
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt,
+                "slip_nos": all_slip_nos
+            }
+
+            print(f"\n✅ 구매 업로드 완료:")
+            print(f"  - 성공: {total_success_cnt}건")
+            print(f"  - 실패: {total_fail_cnt}건")
+
+        except Exception as e:
+            print(f"❌ 구매 업로드 실패: {e}")
+            results["purchase_upload"] = {"success": False, "error": str(e)}
+
+    return results
+
+
 def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
                               upload_purchase: bool = True, save_excel: bool = True) -> dict:
     """
@@ -1123,16 +1296,40 @@ if __name__ == "__main__":
                 if not range_result["success"]:
                     print("\n⚠️  일부 날짜 처리 실패")
 
-                # 업로드 여부 확인
+                # 업로드 진행
                 if range_result["dates_processed"]:
-                    upload_choice = input("\n업로드를 진행하시겠습니까? (y/n): ").strip().lower()
+                    print("\n" + "=" * 80)
+                    print("이카운트 API 업로드 중...")
+                    print("=" * 80)
 
-                    if upload_choice == 'y':
-                        print("\n⚠️  날짜 범위 처리 시에는 병합된 데이터를 이카운트에 직접 업로드하지 않습니다.")
-                        print(f"생성된 엑셀 파일({range_result['output_file']})을 확인하신 후,")
-                        print("필요시 개별 날짜로 업로드를 진행해주세요.")
-                    else:
-                        print("\n✅ 처리 완료 (업로드 생략)")
+                    # 병합된 데이터 업로드
+                    upload_result = upload_dataframes_to_ecount(
+                        sales_df=range_result["sales"],
+                        purchase_df=range_result["purchase"],
+                        description=f"{start_date}~{end_date}"
+                    )
+
+                    # 최종 요약
+                    print("\n" + "=" * 80)
+                    print("처리 결과 요약")
+                    print("=" * 80)
+                    print(f"📅 날짜 범위: {start_date} ~ {end_date}")
+                    print(f"✅ 처리된 날짜: {len(range_result['dates_processed'])}일")
+
+                    if upload_result["login"] and upload_result["login"]["success"]:
+                        print(f"✅ 로그인: 성공")
+
+                    if upload_result["sales_upload"]:
+                        if upload_result["sales_upload"]["success"]:
+                            print(f"✅ 판매 업로드: {upload_result['sales_upload']['success_count']}건 성공")
+                        else:
+                            print(f"❌ 판매 업로드: 실패")
+
+                    if upload_result["purchase_upload"]:
+                        if upload_result["purchase_upload"]["success"]:
+                            print(f"✅ 구매 업로드: {upload_result['purchase_upload']['success_count']}건 성공")
+                        else:
+                            print(f"❌ 구매 업로드: 실패")
 
             # 단일 날짜인 경우
             else:
