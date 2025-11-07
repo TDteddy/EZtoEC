@@ -627,6 +627,137 @@ def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict
     }
 
 
+def process_coupang_date_range(start_date: str, end_date: str, max_retries: int = 5) -> Dict[str, Any]:
+    """
+    쿠팡 로켓그로스 판매 데이터 날짜 범위 처리
+
+    Args:
+        start_date: 시작 날짜 (YYYY-MM-DD)
+        end_date: 종료 날짜 (YYYY-MM-DD)
+        max_retries: 최대 재시도 횟수
+
+    Returns:
+        전체 처리 결과
+    """
+    from datetime import datetime, timedelta
+
+    print("=" * 80)
+    print(f"쿠팡 로켓그로스 판매 데이터 범위 처리: {start_date} ~ {end_date}")
+    print("=" * 80)
+
+    # 날짜 파싱
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as e:
+        print(f"❌ 날짜 형식 오류: {e}")
+        return {
+            "success": False,
+            "error": "Invalid date format",
+            "dates_processed": []
+        }
+
+    if start > end:
+        print("❌ 시작 날짜가 종료 날짜보다 늦습니다.")
+        return {
+            "success": False,
+            "error": "Start date is after end date",
+            "dates_processed": []
+        }
+
+    # 날짜 리스트 생성
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+
+    print(f"\n📅 처리할 날짜: {len(dates)}일")
+    print(f"   {', '.join(dates)}\n")
+
+    # 각 날짜별 결과 저장
+    all_sales = []
+    all_purchase = []
+    all_voucher = []
+    dates_processed = []
+    dates_failed = []
+
+    # 날짜별로 순차 처리
+    for idx, target_date in enumerate(dates, 1):
+        print("\n" + "=" * 80)
+        print(f"[{idx}/{len(dates)}] {target_date} 처리 중...")
+        print("=" * 80)
+
+        try:
+            result = process_coupang_rocketgrowth(target_date, max_retries)
+
+            # 성공한 경우 데이터 수집
+            if result["result"].get("conversion", {}).get("success", False):
+                sales_df = result["sales"]
+                purchase_df = result["purchase"]
+                voucher_df = result["voucher"]
+
+                if not sales_df.empty:
+                    all_sales.append(sales_df)
+                if not purchase_df.empty:
+                    all_purchase.append(purchase_df)
+                if not voucher_df.empty:
+                    all_voucher.append(voucher_df)
+
+                dates_processed.append(target_date)
+                print(f"✅ {target_date} 처리 완료")
+            else:
+                dates_failed.append(target_date)
+                print(f"⚠️  {target_date} 처리 실패 또는 데이터 없음")
+
+        except Exception as e:
+            dates_failed.append(target_date)
+            print(f"❌ {target_date} 처리 중 오류: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # 전체 데이터 병합
+    print("\n" + "=" * 80)
+    print("전체 데이터 병합 중...")
+    print("=" * 80)
+
+    merged_sales = pd.concat(all_sales, ignore_index=True) if all_sales else pd.DataFrame()
+    merged_purchase = pd.concat(all_purchase, ignore_index=True) if all_purchase else pd.DataFrame()
+    merged_voucher = pd.concat(all_voucher, ignore_index=True) if all_voucher else pd.DataFrame()
+
+    # 최종 결과 저장
+    output_filename = f"output_coupang_rocketgrowth_{start_date}_to_{end_date}.xlsx"
+    save_to_excel(merged_sales, merged_purchase, merged_voucher, output_filename)
+
+    # 결과 요약
+    print("\n" + "=" * 80)
+    print("처리 완료 요약")
+    print("=" * 80)
+    print(f"총 날짜: {len(dates)}일")
+    print(f"성공: {len(dates_processed)}일")
+    print(f"실패: {len(dates_failed)}일")
+    if dates_processed:
+        print(f"\n✅ 처리된 날짜: {', '.join(dates_processed)}")
+    if dates_failed:
+        print(f"\n⚠️  실패한 날짜: {', '.join(dates_failed)}")
+    print(f"\n📊 병합된 데이터:")
+    print(f"   판매: {len(merged_sales)}건")
+    print(f"   매입: {len(merged_purchase)}건")
+    print(f"   매입전표: {len(merged_voucher)}건")
+    print(f"\n💾 저장 파일: {output_filename}")
+    print("=" * 80)
+
+    return {
+        "success": len(dates_failed) == 0,
+        "dates_processed": dates_processed,
+        "dates_failed": dates_failed,
+        "sales": merged_sales,
+        "purchase": merged_purchase,
+        "voucher": merged_voucher,
+        "output_file": output_filename
+    }
+
+
 if __name__ == "__main__":
     # 사용자에게 날짜 입력받기
     print("=" * 80)
