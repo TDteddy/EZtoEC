@@ -1077,40 +1077,90 @@ if __name__ == "__main__":
         print("=" * 80)
 
         # 날짜 입력 받기
-        if len(sys.argv) > 2:
-            target_date = sys.argv[2]
-        else:
-            target_date = input("\n처리할 날짜를 입력하세요 (YYYY-MM-DD): ").strip()
+        start_date = None
+        end_date = None
 
-        if not target_date:
-            print("❌ 날짜를 입력하지 않았습니다.")
+        if len(sys.argv) > 2:
+            start_date = sys.argv[2]
+            # 종료 날짜도 제공되었는지 확인
+            if len(sys.argv) > 3:
+                end_date = sys.argv[3]
+        else:
+            # 대화형 입력
+            print("\n날짜 입력 방법:")
+            print("  1) 단일 날짜: YYYY-MM-DD")
+            print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
+            date_input = input("\n처리할 날짜를 입력하세요: ").strip()
+
+            if not date_input:
+                print("❌ 날짜를 입력하지 않았습니다.")
+                sys.exit(1)
+
+            # 공백으로 분리
+            dates = date_input.split()
+            if len(dates) == 1:
+                start_date = dates[0]
+            elif len(dates) == 2:
+                start_date = dates[0]
+                end_date = dates[1]
+            else:
+                print("❌ 올바른 날짜 형식이 아닙니다.")
+                sys.exit(1)
+
+        if not start_date:
+            print("❌ 시작 날짜를 입력하지 않았습니다.")
             sys.exit(1)
 
         try:
-            results = upload_coupang_to_ecount(target_date)
+            # 날짜 범위인 경우
+            if end_date:
+                print(f"\n📅 날짜 범위 처리: {start_date} ~ {end_date}")
+                from coupang_rocketgrowth import process_coupang_date_range
 
-            # 최종 요약
-            print("\n" + "=" * 80)
-            print("처리 결과 요약")
-            print("=" * 80)
+                # 날짜 범위 처리 (데이터 처리만, 업로드는 하지 않음)
+                range_result = process_coupang_date_range(start_date, end_date)
 
-            if results["coupang_processing"] and results["coupang_processing"]["success"]:
-                print(f"✅ 쿠팡 데이터 처리: 성공")
+                if not range_result["success"]:
+                    print("\n⚠️  일부 날짜 처리 실패")
 
-            if results["login"] and results["login"]["success"]:
-                print(f"✅ 로그인: 성공")
+                # 업로드 여부 확인
+                if range_result["dates_processed"]:
+                    upload_choice = input("\n업로드를 진행하시겠습니까? (y/n): ").strip().lower()
 
-            if results["sales_upload"]:
-                if results["sales_upload"]["success"]:
-                    print(f"✅ 판매 업로드: {results['sales_upload']['success_count']}건 성공")
-                else:
-                    print(f"❌ 판매 업로드: 실패")
+                    if upload_choice == 'y':
+                        print("\n⚠️  날짜 범위 처리 시에는 병합된 데이터를 이카운트에 직접 업로드하지 않습니다.")
+                        print(f"생성된 엑셀 파일({range_result['output_file']})을 확인하신 후,")
+                        print("필요시 개별 날짜로 업로드를 진행해주세요.")
+                    else:
+                        print("\n✅ 처리 완료 (업로드 생략)")
 
-            if results["purchase_upload"]:
-                if results["purchase_upload"]["success"]:
-                    print(f"✅ 구매 업로드: {results['purchase_upload']['success_count']}건 성공")
-                else:
-                    print(f"❌ 구매 업로드: 실패")
+            # 단일 날짜인 경우
+            else:
+                print(f"\n📅 단일 날짜 처리: {start_date}")
+                results = upload_coupang_to_ecount(start_date)
+
+                # 최종 요약
+                print("\n" + "=" * 80)
+                print("처리 결과 요약")
+                print("=" * 80)
+
+                if results["coupang_processing"] and results["coupang_processing"]["success"]:
+                    print(f"✅ 쿠팡 데이터 처리: 성공")
+
+                if results["login"] and results["login"]["success"]:
+                    print(f"✅ 로그인: 성공")
+
+                if results["sales_upload"]:
+                    if results["sales_upload"]["success"]:
+                        print(f"✅ 판매 업로드: {results['sales_upload']['success_count']}건 성공")
+                    else:
+                        print(f"❌ 판매 업로드: 실패")
+
+                if results["purchase_upload"]:
+                    if results["purchase_upload"]["success"]:
+                        print(f"✅ 구매 업로드: {results['purchase_upload']['success_count']}건 성공")
+                    else:
+                        print(f"❌ 구매 업로드: 실패")
 
         except Exception as e:
             print(f"\n❌ 처리 실패: {e}")
