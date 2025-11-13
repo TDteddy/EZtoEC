@@ -849,6 +849,171 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
     return results
 
 
+def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> dict:
+    """
+    엑셀 파일에서 데이터를 읽어 특정 배치부터 업로드
+
+    Args:
+        excel_file: 엑셀 파일 경로
+        data_type: "sales" 또는 "purchase"
+        start_batch: 시작 배치 번호 (1부터 시작)
+
+    Returns:
+        업로드 결과 딕셔너리
+    """
+    print("=" * 80)
+    print(f"배치 재업로드: {data_type.upper()} (배치 {start_batch}번부터)")
+    print("=" * 80)
+
+    results = {
+        "login": None,
+        "upload": None
+    }
+
+    # ===== 1단계: 엑셀 파일 읽기 =====
+    print(f"\n[1단계] 엑셀 파일 읽기: {excel_file}")
+    try:
+        import os
+        if not os.path.exists(excel_file):
+            print(f"❌ 파일을 찾을 수 없습니다: {excel_file}")
+            return results
+
+        # 시트명 결정
+        sheet_name = "판매" if data_type == "sales" else "매입"
+
+        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+        print(f"✅ {len(df)}건의 데이터 로드 완료")
+
+        if df.empty:
+            print("❌ 데이터가 비어있습니다.")
+            return results
+
+    except Exception as e:
+        print(f"❌ 파일 읽기 실패: {e}")
+        return results
+
+    # ===== 2단계: 배치 분할 =====
+    print(f"\n[2단계] 배치 분할 중...")
+    batches = split_dataframe_into_batches(df, batch_size=300)
+    total_batches = len(batches)
+
+    print(f"✅ 총 {total_batches}개 배치로 분할 완료")
+
+    if start_batch > total_batches:
+        print(f"❌ 시작 배치 번호({start_batch})가 전체 배치 수({total_batches})를 초과합니다.")
+        return results
+
+    # ===== 3단계: 이카운트 로그인 =====
+    print(f"\n[3단계] 이카운트 로그인 중...")
+    try:
+        login_result = login_ecount(
+            com_code=COM_CODE,
+            user_id=USER_ID,
+            api_cert_key=API_CERT_KEY,
+            lan_type=LAN_TYPE,
+            zone=ZONE,
+            test=USE_TEST_SERVER
+        )
+
+        data = login_result.get("Data", {}) or {}
+        datas = data.get("Datas", {}) or {}
+        session_id = datas.get("SESSION_ID")
+
+        if not session_id:
+            print("❌ SESSION_ID를 찾을 수 없습니다.")
+            results["login"] = {"success": False, "error": "No SESSION_ID"}
+            return results
+
+        results["login"] = {"success": True, "session_id": session_id}
+        print(f"✅ 로그인 성공: SESSION_ID={session_id[:20]}...")
+
+    except Exception as e:
+        print(f"❌ 로그인 실패: {e}")
+        results["login"] = {"success": False, "error": str(e)}
+        return results
+
+    # ===== 4단계: 특정 배치부터 업로드 =====
+    print(f"\n[4단계] 배치 {start_batch}번부터 {total_batches}번까지 업로드 중...")
+
+    total_success_cnt = 0
+    total_fail_cnt = 0
+    all_slip_nos = []
+    failed_batches = []
+
+    try:
+        for batch_idx in range(start_batch - 1, total_batches):
+            batch_num = batch_idx + 1
+            batch_df = batches[batch_idx]
+
+            print(f"\n  📤 배치 {batch_num}/{total_batches} 업로드 중... ({len(batch_df)}건)")
+
+            try:
+                if data_type == "sales":
+                    result = save_sale(
+                        session_id=session_id,
+                        sales_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
+                else:  # purchase
+                    result = save_purchase(
+                        session_id=session_id,
+                        purchase_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
+
+                result_data = result.get("Data", {})
+                success_cnt = result_data.get("SuccessCnt", 0)
+                fail_cnt = result_data.get("FailCnt", 0)
+                slip_nos = result_data.get("SlipNos", [])
+
+                total_success_cnt += success_cnt
+                total_fail_cnt += fail_cnt
+                all_slip_nos.extend(slip_nos)
+
+                if fail_cnt > 0:
+                    failed_batches.append(batch_num)
+                    print(f"     ⚠️  배치 {batch_num}: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+
+                    # 실패 상세
+                    result_details = result_data.get("ResultDetails", [])
+                    for detail in result_details:
+                        if not detail.get("IsSuccess", False):
+                            print(f"         오류: {detail.get('TotalError', '')}")
+                else:
+                    print(f"     ✅ 배치 {batch_num}: 성공 {success_cnt}건")
+
+            except Exception as e:
+                print(f"     ❌ 배치 {batch_num} 업로드 실패: {e}")
+                failed_batches.append(batch_num)
+                continue
+
+        results["upload"] = {
+            "success": len(failed_batches) == 0,
+            "success_count": total_success_cnt,
+            "fail_count": total_fail_cnt,
+            "slip_nos": all_slip_nos,
+            "total_batches": total_batches - (start_batch - 1),
+            "failed_batches": failed_batches
+        }
+
+        print(f"\n" + "=" * 80)
+        print("업로드 완료")
+        print("=" * 80)
+        print(f"배치 범위: {start_batch}번 ~ {total_batches}번")
+        print(f"성공: {total_success_cnt}건")
+        print(f"실패: {total_fail_cnt}건")
+        if failed_batches:
+            print(f"⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+    except Exception as e:
+        print(f"❌ 업로드 실패: {e}")
+        results["upload"] = {"success": False, "error": str(e)}
+
+    return results
+
+
 def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
                        save_excel: bool = True) -> dict:
     """
@@ -1242,6 +1407,87 @@ if __name__ == "__main__":
 
         except Exception as e:
             print(f"\n❌ 변환 실패: {e}")
+
+    elif mode == "fixupload":
+        # 배치 재업로드 모드
+        print("=" * 80)
+        print("배치 재업로드 (이지어드민)")
+        print("=" * 80)
+
+        # 엑셀 파일 경로 입력
+        if len(sys.argv) > 2:
+            excel_file = sys.argv[2]
+        else:
+            excel_file = input("\n엑셀 파일 경로를 입력하세요: ").strip()
+
+        if not excel_file:
+            print("❌ 파일 경로를 입력하지 않았습니다.")
+            sys.exit(1)
+
+        # 판매/매입 선택
+        print("\n업로드할 데이터 유형을 선택하세요:")
+        print("  1) 판매 (sales)")
+        print("  2) 매입 (purchase)")
+
+        if len(sys.argv) > 3:
+            data_choice = sys.argv[3]
+        else:
+            data_choice = input("\n선택 (1 또는 2): ").strip()
+
+        if data_choice == "1":
+            data_type = "sales"
+        elif data_choice == "2":
+            data_type = "purchase"
+        else:
+            print("❌ 잘못된 선택입니다.")
+            sys.exit(1)
+
+        # 시작 배치 번호 입력
+        if len(sys.argv) > 4:
+            start_batch_str = sys.argv[4]
+        else:
+            start_batch_str = input("\n시작 배치 번호를 입력하세요 (1부터 시작): ").strip()
+
+        try:
+            start_batch = int(start_batch_str)
+            if start_batch < 1:
+                print("❌ 배치 번호는 1 이상이어야 합니다.")
+                sys.exit(1)
+        except ValueError:
+            print("❌ 올바른 숫자를 입력하세요.")
+            sys.exit(1)
+
+        # 재업로드 실행
+        try:
+            result = fix_upload_from_batch(excel_file, data_type, start_batch)
+
+            # 결과 요약
+            print("\n" + "=" * 80)
+            print("최종 결과")
+            print("=" * 80)
+
+            if result["login"] and result["login"]["success"]:
+                print("✅ 로그인: 성공")
+
+            if result["upload"]:
+                upload = result["upload"]
+                if upload["success"]:
+                    print(f"✅ 업로드: 성공")
+                    print(f"   - 총 배치: {upload['total_batches']}개")
+                    print(f"   - 성공: {upload['success_count']}건")
+                    print(f"   - 실패: {upload['fail_count']}건")
+                else:
+                    print(f"⚠️  업로드: 일부 실패")
+                    print(f"   - 성공: {upload.get('success_count', 0)}건")
+                    print(f"   - 실패: {upload.get('fail_count', 0)}건")
+                    if upload.get("failed_batches"):
+                        print(f"   - 실패 배치: {', '.join(map(str, upload['failed_batches']))}")
+
+        except Exception as e:
+            print(f"\n❌ 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
     elif mode == "coupang":
         # 쿠팡 로켓그로스 처리
