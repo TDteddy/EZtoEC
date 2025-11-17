@@ -1363,9 +1363,10 @@ if __name__ == "__main__":
     print("  1) 이지어드민 업로드")
     print("  2) 쿠팡 업로드")
     print("  3) 누락건 중간배치부터 업로드")
+    print("  4) 이카운트 로그인 테스트")
     print()
 
-    choice = input("선택 (1-3): ").strip()
+    choice = input("선택 (1-4): ").strip()
 
     if choice == "3":
         # 배치 재업로드 모드
@@ -1580,6 +1581,44 @@ if __name__ == "__main__":
             print(f"\n❌ 처리 실패: {e}")
             sys.exit(1)
 
+    elif choice == "4":
+        # 로그인 테스트
+        print("=" * 80)
+        print("이카운트 로그인 테스트")
+        print("=" * 80)
+        try:
+            result = login_ecount(
+                com_code=COM_CODE,
+                user_id=USER_ID,
+                api_cert_key=API_CERT_KEY,
+                lan_type=LAN_TYPE,
+                zone=ZONE,
+                test=USE_TEST_SERVER,
+            )
+
+            # 전체 응답 출력 (디버깅용)
+            print("\n[디버깅] 전체 API 응답:")
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+
+            # SESSION_ID 추출
+            data = result.get("Data", {}) or {}
+            datas = data.get("Datas", {}) or {}
+            session_id = datas.get("SESSION_ID")
+
+            if session_id:
+                print(f"\n✅ 로그인 성공")
+                print(f"SESSION_ID: {session_id}")
+            else:
+                print("\n❌ SESSION_ID를 찾을 수 없습니다.")
+                print("응답 구조를 확인하세요:")
+                print(f"  - Data 존재: {bool(data)}")
+                print(f"  - Datas 존재: {bool(datas)}")
+                if datas:
+                    print(f"  - Datas 키 목록: {list(datas.keys())}")
+
+        except Exception as e:
+            print(f"\n❌ 로그인 실패: {e}")
+
     else:
-        print("\n❌ 잘못된 선택입니다. 1, 2, 3 중 하나를 선택하세요.")
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4 중 하나를 선택하세요.")
         sys.exit(1)
