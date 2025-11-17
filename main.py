@@ -912,8 +912,21 @@ def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> 
         # 시트명 결정
         sheet_name = "판매" if data_type == "sales" else "매입"
 
+        # 엑셀 읽기
         df = pd.read_excel(excel_file, sheet_name=sheet_name)
         print(f"✅ {len(df)}건의 데이터 로드 완료")
+
+        # 날짜 컬럼 확인 및 디버깅
+        if "일자" in df.columns:
+            print(f"\n[DEBUG] 엑셀에서 읽은 일자 컬럼 샘플 (처음 5개):")
+            for idx, val in df["일자"].head(5).items():
+                print(f"  - 행 {idx}: {repr(val)} (타입: {type(val).__name__})")
+
+            # 날짜 타입 통계
+            date_types = df["일자"].apply(lambda x: type(x).__name__).value_counts()
+            print(f"\n[DEBUG] 일자 컬럼 타입 분포:")
+            for dtype, count in date_types.items():
+                print(f"  - {dtype}: {count}건")
 
         if df.empty:
             print("❌ 데이터가 비어있습니다.")
