@@ -1379,6 +1379,7 @@ if __name__ == "__main__":
 
         if not excel_file:
             print("❌ 파일 경로를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 판매/매입 선택
@@ -1394,6 +1395,7 @@ if __name__ == "__main__":
             data_type = "purchase"
         else:
             print("❌ 잘못된 선택입니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 시작 배치 번호 입력
@@ -1403,9 +1405,11 @@ if __name__ == "__main__":
             start_batch = int(start_batch_str)
             if start_batch < 1:
                 print("❌ 배치 번호는 1 이상이어야 합니다.")
+                input("\n엔터키를 눌러 종료하세요...")
                 sys.exit(1)
         except ValueError:
             print("❌ 올바른 숫자를 입력하세요.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 재업로드 실행
@@ -1438,7 +1442,8 @@ if __name__ == "__main__":
             print(f"\n❌ 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
+
+        input("\n엔터키를 눌러 종료하세요...")
 
     elif choice == "2":
         # 쿠팡 로켓그로스 처리
@@ -1454,6 +1459,7 @@ if __name__ == "__main__":
 
         if not date_input:
             print("❌ 날짜를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 공백으로 분리
@@ -1466,6 +1472,7 @@ if __name__ == "__main__":
             end_date = dates[1]
         else:
             print("❌ 올바른 날짜 형식이 아닙니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         try:
@@ -1547,7 +1554,8 @@ if __name__ == "__main__":
             print(f"\n❌ 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
+
+        input("\n엔터키를 눌러 종료하세요...")
 
     elif choice == "1":
         # 이지어드민 업로드
@@ -1579,7 +1587,8 @@ if __name__ == "__main__":
 
         except Exception as e:
             print(f"\n❌ 처리 실패: {e}")
-            sys.exit(1)
+
+        input("\n엔터키를 눌러 종료하세요...")
 
     elif choice == "4":
         # 로그인 테스트
@@ -1619,6 +1628,8 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n❌ 로그인 실패: {e}")
 
+        input("\n엔터키를 눌러 종료하세요...")
+
     else:
         print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4 중 하나를 선택하세요.")
-        sys.exit(1)
+        input("\n엔터키를 눌러 종료하세요...")
