@@ -1355,70 +1355,26 @@ if __name__ == "__main__":
         print("  export ECOUNT_COM_CODE='your-company-code'")
         sys.exit(1)
 
-    # 명령행 인자 처리
-    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    # 메뉴 출력
+    print("\n" + "=" * 80)
+    print("                     EZAdmin → eCount 통합 처리 시스템")
+    print("=" * 80)
+    print("\n실행할 기능을 선택하세요:")
+    print("  1) 이지어드민 업로드")
+    print("  2) 쿠팡 업로드")
+    print("  3) 누락건 중간배치부터 업로드")
+    print()
 
-    if mode == "login":
-        # 로그인만 테스트
-        print("=" * 80)
-        print("이카운트 로그인 테스트")
-        print("=" * 80)
-        try:
-            result = login_ecount(
-                com_code=COM_CODE,
-                user_id=USER_ID,
-                api_cert_key=API_CERT_KEY,
-                lan_type=LAN_TYPE,
-                zone=ZONE,
-                test=USE_TEST_SERVER,
-            )
+    choice = input("선택 (1-3): ").strip()
 
-            # SESSION_ID 추출
-            data = result.get("Data", {}) or {}
-            datas = data.get("Datas", {}) or {}
-            session_id = datas.get("SESSION_ID")
-
-            if session_id:
-                print(f"\n✅ 로그인 성공")
-                print(f"SESSION_ID: {session_id}")
-            else:
-                print("\n❌ SESSION_ID를 찾을 수 없습니다. 응답 구조를 확인하세요.")
-
-        except Exception as e:
-            print(f"\n❌ 로그인 실패: {e}")
-
-    elif mode == "convert":
-        # 엑셀 변환만 수행
-        print("=" * 80)
-        print("이지어드민 엑셀 변환")
-        print("=" * 80)
-        from excel_converter import process_ezadmin_to_ecount, save_to_excel
-        try:
-            result, pending_mappings = process_ezadmin_to_ecount()
-            save_to_excel(result, "output_ecount.xlsx")
-            print(f"\n✅ 변환 완료:")
-            print(f"  - 판매: {len(result['sales'])}건")
-            print(f"  - 매입: {len(result['purchase'])}건")
-            print(f"  - 매입전표: {len(result['voucher'])}건")
-
-            if pending_mappings:
-                print(f"\n⚠️  수동 매핑 필요: {len(pending_mappings)}건")
-                print("   python main.py 를 실행하여 웹 에디터로 매핑하세요.")
-
-        except Exception as e:
-            print(f"\n❌ 변환 실패: {e}")
-
-    elif mode == "fixupload":
+    if choice == "3":
         # 배치 재업로드 모드
         print("=" * 80)
         print("배치 재업로드 (이지어드민)")
         print("=" * 80)
 
         # 엑셀 파일 경로 입력
-        if len(sys.argv) > 2:
-            excel_file = sys.argv[2]
-        else:
-            excel_file = input("\n엑셀 파일 경로를 입력하세요: ").strip()
+        excel_file = input("\n엑셀 파일 경로를 입력하세요: ").strip()
 
         if not excel_file:
             print("❌ 파일 경로를 입력하지 않았습니다.")
@@ -1429,10 +1385,7 @@ if __name__ == "__main__":
         print("  1) 판매 (sales)")
         print("  2) 매입 (purchase)")
 
-        if len(sys.argv) > 3:
-            data_choice = sys.argv[3]
-        else:
-            data_choice = input("\n선택 (1 또는 2): ").strip()
+        data_choice = input("\n선택 (1 또는 2): ").strip()
 
         if data_choice == "1":
             data_type = "sales"
@@ -1443,10 +1396,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # 시작 배치 번호 입력
-        if len(sys.argv) > 4:
-            start_batch_str = sys.argv[4]
-        else:
-            start_batch_str = input("\n시작 배치 번호를 입력하세요 (1부터 시작): ").strip()
+        start_batch_str = input("\n시작 배치 번호를 입력하세요 (1부터 시작): ").strip()
 
         try:
             start_batch = int(start_batch_str)
@@ -1489,45 +1439,32 @@ if __name__ == "__main__":
             traceback.print_exc()
             sys.exit(1)
 
-    elif mode == "coupang":
+    elif choice == "2":
         # 쿠팡 로켓그로스 처리
         print("=" * 80)
         print("쿠팡 로켓그로스 판매 데이터 처리")
         print("=" * 80)
 
         # 날짜 입력 받기
-        start_date = None
-        end_date = None
+        print("\n날짜 입력 방법:")
+        print("  1) 단일 날짜: YYYY-MM-DD")
+        print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
+        date_input = input("\n처리할 날짜를 입력하세요: ").strip()
 
-        if len(sys.argv) > 2:
-            start_date = sys.argv[2]
-            # 종료 날짜도 제공되었는지 확인
-            if len(sys.argv) > 3:
-                end_date = sys.argv[3]
+        if not date_input:
+            print("❌ 날짜를 입력하지 않았습니다.")
+            sys.exit(1)
+
+        # 공백으로 분리
+        dates = date_input.split()
+        if len(dates) == 1:
+            start_date = dates[0]
+            end_date = None
+        elif len(dates) == 2:
+            start_date = dates[0]
+            end_date = dates[1]
         else:
-            # 대화형 입력
-            print("\n날짜 입력 방법:")
-            print("  1) 단일 날짜: YYYY-MM-DD")
-            print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
-            date_input = input("\n처리할 날짜를 입력하세요: ").strip()
-
-            if not date_input:
-                print("❌ 날짜를 입력하지 않았습니다.")
-                sys.exit(1)
-
-            # 공백으로 분리
-            dates = date_input.split()
-            if len(dates) == 1:
-                start_date = dates[0]
-            elif len(dates) == 2:
-                start_date = dates[0]
-                end_date = dates[1]
-            else:
-                print("❌ 올바른 날짜 형식이 아닙니다.")
-                sys.exit(1)
-
-        if not start_date:
-            print("❌ 시작 날짜를 입력하지 않았습니다.")
+            print("❌ 올바른 날짜 형식이 아닙니다.")
             sys.exit(1)
 
         try:
@@ -1611,8 +1548,8 @@ if __name__ == "__main__":
             traceback.print_exc()
             sys.exit(1)
 
-    else:
-        # 통합 처리 (기본)
+    elif choice == "1":
+        # 이지어드민 업로드
         try:
             results = process_and_upload()
 
@@ -1642,3 +1579,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"\n❌ 처리 실패: {e}")
             sys.exit(1)
+
+    else:
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3 중 하나를 선택하세요.")
+        sys.exit(1)
