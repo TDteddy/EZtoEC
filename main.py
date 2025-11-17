@@ -105,28 +105,59 @@ def safe_str(value: Any) -> str:
 
 def safe_date(value: Any) -> str:
     """날짜를 YYYYMMDD 형식으로 변환 (예: 20180612)"""
+    # None 또는 NaN 처리
     if pd.isna(value) or value is None:
         return ""
 
     # datetime.date, datetime.datetime, pd.Timestamp 처리
     if isinstance(value, (datetime, pd.Timestamp, date)):
-        return value.strftime("%Y%m%d")
+        result = value.strftime("%Y%m%d")
+        print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
+        return result
 
     # 문자열 처리
     if isinstance(value, str):
+        # 빈 문자열 체크
+        if not value.strip():
+            print(f"[DEBUG] safe_date: 빈 문자열 발견 -> ''")
+            return ""
+
         # 구분자 제거 후 YYYYMMDD 형식으로 변환
         cleaned = value.replace("-", "").replace("/", "").strip()
+
         if len(cleaned) >= 8:
-            return cleaned[:8]
-        return value
+            result = cleaned[:8]
+            # 숫자인지 확인
+            if not result.isdigit():
+                print(f"[WARNING] safe_date: 숫자가 아닌 날짜 '{value}' -> '{result}'")
+            else:
+                print(f"[DEBUG] safe_date: str '{value}' -> '{result}'")
+            return result
+        else:
+            print(f"[WARNING] safe_date: 날짜 길이 부족 '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
+            return ""  # 8자리 미만이면 빈 문자열 반환
 
     # 기타 타입은 문자열로 변환 시도
     str_value = str(value)
-    if len(str_value) >= 8:
-        cleaned = str_value.replace("-", "").replace("/", "").strip()
-        return cleaned[:8]
 
-    return str_value
+    # 빈 문자열 체크
+    if not str_value.strip():
+        print(f"[DEBUG] safe_date: 빈 문자열 ({type(value).__name__}) -> ''")
+        return ""
+
+    cleaned = str_value.replace("-", "").replace("/", "").strip()
+
+    if len(cleaned) >= 8:
+        result = cleaned[:8]
+        # 숫자인지 확인
+        if not result.isdigit():
+            print(f"[WARNING] safe_date: 숫자가 아닌 날짜 ({type(value).__name__}) '{value}' -> '{result}'")
+        else:
+            print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
+        return result
+    else:
+        print(f"[WARNING] safe_date: 날짜 길이 부족 ({type(value).__name__}) '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
+        return ""  # 8자리 미만이면 빈 문자열 반환
 
 
 def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
