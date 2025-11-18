@@ -105,6 +105,8 @@ def safe_str(value: Any) -> str:
 
 def safe_date(value: Any) -> str:
     """날짜를 YYYYMMDD 형식으로 변환 (예: 20180612)"""
+    from datetime import timedelta
+
     # None 또는 NaN 처리
     if pd.isna(value) or value is None:
         return ""
@@ -114,6 +116,34 @@ def safe_date(value: Any) -> str:
         result = value.strftime("%Y%m%d")
         print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
         return result
+
+    # 숫자형 처리 (엑셀 시리얼 날짜 포함)
+    if isinstance(value, (int, float)):
+        # NaN 체크 (float인 경우)
+        if isinstance(value, float) and (pd.isna(value) or value != value):
+            return ""
+
+        num_value = int(value)
+
+        # 엑셀 시리얼 날짜 판단 (1~60000 범위면 시리얼 날짜로 간주)
+        # YYYYMMDD 형식은 최소 19000101 = 19000101 이므로 구분 가능
+        if 1 <= num_value <= 60000:
+            # 엑셀 시리얼 날짜를 datetime으로 변환
+            # 엑셀은 1900-01-01을 1로 시작하지만 1900년 윤년 버그가 있어 기준일 조정
+            base_date = datetime(1899, 12, 30)
+            actual_date = base_date + timedelta(days=num_value)
+            result = actual_date.strftime("%Y%m%d")
+            print(f"[DEBUG] safe_date: 엑셀 시리얼 {num_value} -> '{result}'")
+            return result
+        else:
+            # YYYYMMDD 형식의 숫자로 간주
+            str_value = str(num_value)
+            if len(str_value) == 8:
+                print(f"[DEBUG] safe_date: int YYYYMMDD {num_value} -> '{str_value}'")
+                return str_value
+            else:
+                print(f"[WARNING] safe_date: 알 수 없는 숫자 형식 {num_value} -> ''")
+                return ""
 
     # 문자열 처리
     if isinstance(value, str):
