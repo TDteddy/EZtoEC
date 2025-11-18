@@ -362,7 +362,7 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
         commission_supply = int(commission_total / 1.1)
         commission_vat = commission_total - commission_supply
 
-        # 운송료 전표
+        # 운송료 전표 (매입계정코드 8019)
         if shipping_total > 0:
             vouchers.append({
                 "전표일자": date_val,
@@ -371,15 +371,19 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
                 "거래처코드": "",
                 "거래처명": dept,
                 "부가세유형": "과세",
-                "품목명": "운송료",
-                "수량": 1,
-                "단가": shipping_supply,
+                "신용카드/승인번호": "",
                 "공급가액": shipping_supply,
+                "외화금액": "",
+                "환율": "",
                 "부가세": shipping_vat,
-                "합계": shipping_total
+                "적요": "운송료",
+                "매입계정코드": "8019",
+                "돈나간계좌번호": "",
+                "채무번호": "",
+                "만기일자": ""
             })
 
-        # 수수료 전표
+        # 수수료 전표 (매입계정코드 8029)
         if commission_total > 0:
             vouchers.append({
                 "전표일자": date_val,
@@ -388,12 +392,16 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
                 "거래처코드": "",
                 "거래처명": dept,
                 "부가세유형": "과세",
-                "품목명": "수수료",
-                "수량": 1,
-                "단가": commission_supply,
+                "신용카드/승인번호": "",
                 "공급가액": commission_supply,
+                "외화금액": "",
+                "환율": "",
                 "부가세": commission_vat,
-                "합계": commission_total
+                "적요": "수수료",
+                "매입계정코드": "8029",
+                "돈나간계좌번호": "",
+                "채무번호": "",
+                "만기일자": ""
             })
 
     voucher_df = pd.DataFrame(vouchers)
