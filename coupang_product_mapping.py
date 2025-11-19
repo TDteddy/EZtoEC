@@ -141,9 +141,10 @@ class CoupangProductMappingDB:
                 CREATE TABLE coupang_product_mapping (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     coupang_option_name VARCHAR(500) NOT NULL UNIQUE COMMENT '쿠팡 옵션명',
-                    standard_product_name VARCHAR(500) NOT NULL COMMENT '이지어드민 스탠다드 상품명',
+                    standard_product_name VARCHAR(500) NOT NULL COMMENT '이지어드민 스탠다드 상품명 또는 세트상품명',
                     quantity_multiplier INT NOT NULL DEFAULT 1 COMMENT '수량 배수 (N개 묶음)',
                     brand VARCHAR(100) NOT NULL COMMENT '브랜드',
+                    is_set_product BOOLEAN DEFAULT FALSE COMMENT '세트상품 여부',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_coupang_option (coupang_option_name),
@@ -153,6 +154,73 @@ class CoupangProductMappingDB:
                 """
                 self.cursor.execute(create_table_sql)
                 print(f"✅ coupang_product_mapping 테이블 생성 완료")
+            else:
+                # 기존 테이블에 is_set_product 컬럼 추가 (없으면)
+                self.cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = 'coupang_product_mapping' AND column_name = 'is_set_product'
+                """, (self.database,))
+                col_result = self.cursor.fetchone()
+                if col_result['count'] == 0:
+                    print(f"[INFO] coupang_product_mapping 테이블에 is_set_product 컬럼 추가 중...")
+                    self.cursor.execute("""
+                        ALTER TABLE coupang_product_mapping
+                        ADD COLUMN is_set_product BOOLEAN DEFAULT FALSE COMMENT '세트상품 여부'
+                    """)
+                    self.conn.commit()
+                    print(f"✅ is_set_product 컬럼 추가 완료")
+
+            # 3. 세트상품 정의 테이블
+            self.cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = 'set_products'
+            """, (self.database,))
+
+            result = self.cursor.fetchone()
+
+            if result['count'] == 0:
+                print(f"[INFO] set_products 테이블 생성 중...")
+                create_table_sql = """
+                CREATE TABLE set_products (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    set_name VARCHAR(500) NOT NULL UNIQUE COMMENT '세트상품명',
+                    brand VARCHAR(100) NOT NULL COMMENT '브랜드',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_set_name (set_name),
+                    INDEX idx_brand (brand)
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                """
+                self.cursor.execute(create_table_sql)
+                print(f"✅ set_products 테이블 생성 완료")
+
+            # 4. 세트상품 구성 아이템 테이블
+            self.cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM information_schema.tables
+                WHERE table_schema = %s AND table_name = 'set_product_items'
+            """, (self.database,))
+
+            result = self.cursor.fetchone()
+
+            if result['count'] == 0:
+                print(f"[INFO] set_product_items 테이블 생성 중...")
+                create_table_sql = """
+                CREATE TABLE set_product_items (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    set_id INT NOT NULL COMMENT '세트상품 ID',
+                    standard_product_name VARCHAR(500) NOT NULL COMMENT '구성품 상품명',
+                    quantity INT NOT NULL DEFAULT 1 COMMENT '구성 수량',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_set_id (set_id),
+                    INDEX idx_product_name (standard_product_name),
+                    FOREIGN KEY (set_id) REFERENCES set_products(id) ON DELETE CASCADE
+                ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+                """
+                self.cursor.execute(create_table_sql)
+                print(f"✅ set_product_items 테이블 생성 완료")
 
             self.conn.commit()
 
@@ -370,6 +438,311 @@ class CoupangProductMappingDB:
         except Error as e:
             print(f"❌ 매핑 삭제 실패: {e}")
             return False
+
+    # ===== 세트상품 관리 =====
+
+    def add_set_product(self, set_name: str, brand: str) -> Optional[int]:
+        """
+        세트상품 추가
+
+        Args:
+            set_name: 세트상품명
+            brand: 브랜드
+
+        Returns:
+            생성된 set_id 또는 None
+        """
+        try:
+            self.cursor.execute(
+                "INSERT INTO set_products (set_name, brand) VALUES (%s, %s)",
+                (set_name.strip(), brand.strip())
+            )
+            self.conn.commit()
+            set_id = self.cursor.lastrowid
+            print(f"✅ 세트상품 추가: '{set_name}' (ID: {set_id}, {brand})")
+            return set_id
+        except Error as e:
+            if "Duplicate entry" in str(e):
+                print(f"⚠️  이미 존재하는 세트상품: '{set_name}'")
+            else:
+                print(f"❌ 세트상품 추가 실패: {e}")
+            return None
+
+    def add_set_product_item(self, set_id: int, standard_product_name: str, quantity: int = 1) -> bool:
+        """
+        세트상품에 구성 아이템 추가
+
+        Args:
+            set_id: 세트상품 ID
+            standard_product_name: 구성품 상품명
+            quantity: 구성 수량
+
+        Returns:
+            성공 여부
+        """
+        try:
+            self.cursor.execute(
+                "INSERT INTO set_product_items (set_id, standard_product_name, quantity) VALUES (%s, %s, %s)",
+                (set_id, standard_product_name.strip(), quantity)
+            )
+            self.conn.commit()
+            print(f"  ✅ 구성품 추가: '{standard_product_name}' x {quantity}")
+            return True
+        except Error as e:
+            print(f"❌ 구성품 추가 실패: {e}")
+            return False
+
+    def get_all_set_products(self) -> List[Dict]:
+        """
+        모든 세트상품 조회 (구성품 포함)
+
+        Returns:
+            세트상품 리스트 [{id, set_name, brand, items: [{standard_product_name, quantity}]}]
+        """
+        try:
+            # 모든 세트상품 가져오기
+            self.cursor.execute(
+                "SELECT id, set_name, brand, created_at FROM set_products ORDER BY brand, set_name"
+            )
+            set_products = self.cursor.fetchall()
+
+            # 각 세트상품의 구성품 가져오기
+            for set_product in set_products:
+                self.cursor.execute(
+                    """SELECT spi.standard_product_name, spi.quantity,
+                              COALESCE(sp.cost_price, 0) as cost_price
+                       FROM set_product_items spi
+                       LEFT JOIN standard_products sp ON spi.standard_product_name = sp.product_name
+                       WHERE spi.set_id = %s
+                       ORDER BY spi.id""",
+                    (set_product['id'],)
+                )
+                set_product['items'] = self.cursor.fetchall()
+
+            return set_products
+        except Error as e:
+            print(f"❌ 세트상품 조회 실패: {e}")
+            return []
+
+    def get_set_product(self, set_id: int) -> Optional[Dict]:
+        """
+        특정 세트상품 조회 (구성품 포함)
+
+        Args:
+            set_id: 세트상품 ID
+
+        Returns:
+            세트상품 정보 또는 None
+        """
+        try:
+            self.cursor.execute(
+                "SELECT id, set_name, brand, created_at FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            set_product = self.cursor.fetchone()
+
+            if set_product:
+                self.cursor.execute(
+                    """SELECT spi.standard_product_name, spi.quantity,
+                              COALESCE(sp.cost_price, 0) as cost_price
+                       FROM set_product_items spi
+                       LEFT JOIN standard_products sp ON spi.standard_product_name = sp.product_name
+                       WHERE spi.set_id = %s
+                       ORDER BY spi.id""",
+                    (set_id,)
+                )
+                set_product['items'] = self.cursor.fetchall()
+
+            return set_product
+        except Error as e:
+            print(f"❌ 세트상품 조회 실패: {e}")
+            return None
+
+    def get_set_product_by_name(self, set_name: str) -> Optional[Dict]:
+        """
+        세트상품명으로 조회 (구성품 포함)
+
+        Args:
+            set_name: 세트상품명
+
+        Returns:
+            세트상품 정보 또는 None
+        """
+        try:
+            self.cursor.execute(
+                "SELECT id, set_name, brand, created_at FROM set_products WHERE set_name = %s",
+                (set_name,)
+            )
+            set_product = self.cursor.fetchone()
+
+            if set_product:
+                self.cursor.execute(
+                    """SELECT spi.standard_product_name, spi.quantity,
+                              COALESCE(sp.cost_price, 0) as cost_price
+                       FROM set_product_items spi
+                       LEFT JOIN standard_products sp ON spi.standard_product_name = sp.product_name
+                       WHERE spi.set_id = %s
+                       ORDER BY spi.id""",
+                    (set_product['id'],)
+                )
+                set_product['items'] = self.cursor.fetchall()
+
+            return set_product
+        except Error as e:
+            print(f"❌ 세트상품 조회 실패: {e}")
+            return None
+
+    def update_set_product(self, set_id: int, set_name: str, brand: str,
+                           items: List[Dict]) -> bool:
+        """
+        세트상품 수정 (구성품 전체 교체)
+
+        Args:
+            set_id: 세트상품 ID
+            set_name: 새 세트상품명
+            brand: 새 브랜드
+            items: 새 구성품 리스트 [{standard_product_name, quantity}]
+
+        Returns:
+            성공 여부
+        """
+        try:
+            # 세트상품 기본정보 수정
+            self.cursor.execute(
+                "UPDATE set_products SET set_name = %s, brand = %s WHERE id = %s",
+                (set_name.strip(), brand.strip(), set_id)
+            )
+
+            # 기존 구성품 삭제
+            self.cursor.execute(
+                "DELETE FROM set_product_items WHERE set_id = %s",
+                (set_id,)
+            )
+
+            # 새 구성품 추가
+            for item in items:
+                self.cursor.execute(
+                    "INSERT INTO set_product_items (set_id, standard_product_name, quantity) VALUES (%s, %s, %s)",
+                    (set_id, item['standard_product_name'].strip(), item.get('quantity', 1))
+                )
+
+            self.conn.commit()
+            print(f"✅ 세트상품 수정: '{set_name}' ({len(items)}개 구성품)")
+            return True
+        except Error as e:
+            print(f"❌ 세트상품 수정 실패: {e}")
+            self.conn.rollback()
+            return False
+
+    def delete_set_product(self, set_id: int) -> bool:
+        """
+        세트상품 삭제 (구성품도 함께 삭제됨 - CASCADE)
+
+        Args:
+            set_id: 세트상품 ID
+
+        Returns:
+            성공 여부
+        """
+        try:
+            self.cursor.execute(
+                "DELETE FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            self.conn.commit()
+
+            if self.cursor.rowcount > 0:
+                print(f"✅ 세트상품 삭제: ID {set_id}")
+                return True
+            else:
+                print(f"⚠️  세트상품을 찾을 수 없음: ID {set_id}")
+                return False
+        except Error as e:
+            print(f"❌ 세트상품 삭제 실패: {e}")
+            return False
+
+    def add_mapping_with_set(self, coupang_option_name: str, standard_product_name: str,
+                              quantity_multiplier: int, brand: str, is_set_product: bool = False) -> bool:
+        """
+        쿠팡 상품 매핑 추가 (세트상품 지원)
+
+        Args:
+            coupang_option_name: 쿠팡 옵션명
+            standard_product_name: 이지어드민 스탠다드 상품명 또는 세트상품명
+            quantity_multiplier: 수량 배수
+            brand: 브랜드
+            is_set_product: 세트상품 여부
+
+        Returns:
+            성공 여부
+        """
+        try:
+            self.cursor.execute(
+                """INSERT INTO coupang_product_mapping
+                   (coupang_option_name, standard_product_name, quantity_multiplier, brand, is_set_product)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (coupang_option_name.strip(), standard_product_name.strip(),
+                 quantity_multiplier, brand.strip(), is_set_product)
+            )
+            self.conn.commit()
+            set_marker = " [세트]" if is_set_product else ""
+            print(f"✅ 매핑 추가: '{coupang_option_name}' → '{standard_product_name}'{set_marker} (x{quantity_multiplier}, {brand})")
+            return True
+        except Error as e:
+            if "Duplicate entry" in str(e):
+                print(f"⚠️  이미 존재하는 매핑: '{coupang_option_name}'")
+            else:
+                print(f"❌ 매핑 추가 실패: {e}")
+            return False
+
+    def get_mapping_with_set(self, coupang_option_name: str) -> Optional[Dict]:
+        """
+        쿠팡 옵션명에 대한 매핑 조회 (세트상품인 경우 구성품 정보 포함)
+
+        Args:
+            coupang_option_name: 쿠팡 옵션명
+
+        Returns:
+            매핑 정보 또는 None
+            - 일반상품: {standard_product_name, quantity_multiplier, brand, cost_price, is_set_product: False}
+            - 세트상품: {standard_product_name, quantity_multiplier, brand, is_set_product: True, items: [...]}
+        """
+        try:
+            self.cursor.execute(
+                """SELECT
+                       m.standard_product_name,
+                       m.quantity_multiplier,
+                       m.brand,
+                       COALESCE(m.is_set_product, FALSE) as is_set_product,
+                       COALESCE(p.cost_price, 0) as cost_price
+                   FROM coupang_product_mapping m
+                   LEFT JOIN standard_products p ON m.standard_product_name = p.product_name
+                   WHERE m.coupang_option_name = %s""",
+                (coupang_option_name,)
+            )
+            row = self.cursor.fetchone()
+
+            if not row:
+                return None
+
+            # 세트상품인 경우 구성품 정보 추가
+            if row.get('is_set_product'):
+                set_product = self.get_set_product_by_name(row['standard_product_name'])
+                if set_product:
+                    row['items'] = set_product['items']
+                    # 세트상품의 총 원가 계산
+                    total_cost = sum(
+                        float(item.get('cost_price', 0)) * item.get('quantity', 1)
+                        for item in set_product['items']
+                    )
+                    row['cost_price'] = total_cost
+                else:
+                    row['items'] = []
+
+            return row
+        except Error as e:
+            print(f"❌ 매핑 조회 실패: {e}")
+            return None
 
     # ===== GPT 자동 매칭 =====
 

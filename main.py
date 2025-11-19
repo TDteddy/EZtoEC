@@ -1438,9 +1438,10 @@ if __name__ == "__main__":
     print("  2) 쿠팡 업로드")
     print("  3) 누락건 중간배치부터 업로드")
     print("  4) 이카운트 로그인 테스트")
+    print("  5) 세트상품 관리")
     print()
 
-    choice = input("선택 (1-4): ").strip()
+    choice = input("선택 (1-5): ").strip()
 
     if choice == "3":
         # 배치 재업로드 모드
@@ -1704,6 +1705,24 @@ if __name__ == "__main__":
 
         input("\n엔터키를 눌러 종료하세요...")
 
+    elif choice == "5":
+        # 세트상품 관리 에디터
+        print("=" * 80)
+        print("세트상품 관리 에디터")
+        print("=" * 80)
+        try:
+            from set_product_editor import start_editor
+            print("\n세트상품 관리 웹 에디터를 시작합니다...")
+            print("브라우저에서 http://localhost:5002 로 접속하세요.")
+            print("종료하려면 Ctrl+C를 누르세요.\n")
+            start_editor(port=5002, debug=False)
+        except Exception as e:
+            print(f"\n❌ 세트상품 에디터 시작 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
+        input("\n엔터키를 눌러 종료하세요...")
+
     else:
-        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4 중 하나를 선택하세요.")
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5 중 하나를 선택하세요.")
         input("\n엔터키를 눌러 종료하세요...")
