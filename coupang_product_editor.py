@@ -311,19 +311,39 @@ EDITOR_TEMPLATE = """
                     {% endif %}
 
                     <input type="hidden" name="original_{{ loop.index0 }}" value="{{ item.option_name }}">
+                    <input type="hidden" name="is_set_{{ loop.index0 }}" id="is_set_{{ loop.index0 }}" value="false">
 
                     <div class="form-group">
                         <label for="standard_{{ loop.index0 }}">스탠다드 상품 선택</label>
                         <select class="form-control" id="standard_{{ loop.index0 }}" name="standard_{{ loop.index0 }}" required>
                             <option value="">-- 선택하세요 --</option>
+                            <optgroup label="개별 상품">
                             {% for product in standard_products %}
                             <option value="{{ product.product_name }}"
                                     data-brand="{{ product.brand }}"
                                     data-cost-price="{{ product.cost_price }}"
+                                    data-is-set="false"
                                     {% if item.gpt_suggestion == product.product_name %}selected{% endif %}>
                                 {{ product.product_name }} ({{ product.brand }}, 원가: {{ "{:,.0f}".format(product.cost_price) }}원)
                             </option>
                             {% endfor %}
+                            </optgroup>
+                            {% if set_products %}
+                            <optgroup label="세트상품">
+                            {% for set_product in set_products %}
+                            {% set total_cost = namespace(value=0) %}
+                            {% for item_inner in set_product.items %}
+                                {% set total_cost.value = total_cost.value + (item_inner.cost_price * item_inner.quantity) %}
+                            {% endfor %}
+                            <option value="{{ set_product.set_name }}"
+                                    data-brand="{{ set_product.brand }}"
+                                    data-cost-price="{{ total_cost.value }}"
+                                    data-is-set="true">
+                                [세트] {{ set_product.set_name }} ({{ set_product.brand }}, 원가: {{ "{:,.0f}".format(total_cost.value) }}원)
+                            </option>
+                            {% endfor %}
+                            </optgroup>
+                            {% endif %}
                         </select>
                     </div>
 
@@ -393,6 +413,7 @@ EDITOR_TEMPLATE = """
                 const selectedOption = this.options[this.selectedIndex];
                 const brand = selectedOption.getAttribute('data-brand');
                 const costPrice = selectedOption.getAttribute('data-cost-price');
+                const isSet = selectedOption.getAttribute('data-is-set');
 
                 if (brand) {
                     document.getElementById('brand_' + index).value = brand;
@@ -400,14 +421,21 @@ EDITOR_TEMPLATE = """
                 if (costPrice) {
                     document.getElementById('cost_price_' + index).value = costPrice;
                 }
+                if (isSet) {
+                    document.getElementById('is_set_' + index).value = isSet;
+                }
             });
 
             // 페이지 로드 시 이미 선택된 상품이 있으면 원가 자동 채우기
             if (select.value) {
                 const selectedOption = select.options[select.selectedIndex];
                 const costPrice = selectedOption.getAttribute('data-cost-price');
+                const isSet = selectedOption.getAttribute('data-is-set');
                 if (costPrice) {
                     document.getElementById('cost_price_' + index).value = costPrice;
+                }
+                if (isSet) {
+                    document.getElementById('is_set_' + index).value = isSet;
                 }
             }
         });
@@ -424,6 +452,7 @@ def index():
 
     with CoupangProductMappingDB() as db:
         standard_products = db.get_all_standard_products()
+        set_products = db.get_all_set_products()
         all_mappings = db.get_all_mappings()
 
     return render_template_string(
@@ -431,6 +460,7 @@ def index():
         pending_mappings=pending_mappings,
         pending_count=len(pending_mappings),
         standard_products=standard_products,
+        set_products=set_products,
         existing_mappings=len(all_mappings),
         success=False
     )
@@ -438,7 +468,7 @@ def index():
 
 @app.route('/save', methods=['POST'])
 def save_mappings():
-    """매핑 저장"""
+    """매핑 저장 (세트상품 지원)"""
     global pending_mappings
 
     count = int(request.form.get('count', 0))
@@ -449,15 +479,17 @@ def save_mappings():
             standard = request.form.get(f'standard_{i}')
             multiplier = int(request.form.get(f'multiplier_{i}', 1))
             brand = request.form.get(f'brand_{i}')
+            is_set = request.form.get(f'is_set_{i}') == 'true'
 
             if original and standard and brand:
-                db.add_mapping(original, standard, multiplier, brand)
+                db.add_mapping_with_set(original, standard, multiplier, brand, is_set)
 
     # 저장 완료 후 pending_mappings 초기화
     pending_mappings = []
 
     with CoupangProductMappingDB() as db:
         standard_products = db.get_all_standard_products()
+        set_products = db.get_all_set_products()
         all_mappings = db.get_all_mappings()
 
     return render_template_string(
@@ -465,6 +497,7 @@ def save_mappings():
         pending_mappings=[],
         pending_count=0,
         standard_products=standard_products,
+        set_products=set_products,
         existing_mappings=len(all_mappings),
         success=True
     )

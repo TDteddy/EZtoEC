@@ -105,28 +105,89 @@ def safe_str(value: Any) -> str:
 
 def safe_date(value: Any) -> str:
     """날짜를 YYYYMMDD 형식으로 변환 (예: 20180612)"""
+    from datetime import timedelta
+
+    # None 또는 NaN 처리
     if pd.isna(value) or value is None:
         return ""
 
     # datetime.date, datetime.datetime, pd.Timestamp 처리
     if isinstance(value, (datetime, pd.Timestamp, date)):
-        return value.strftime("%Y%m%d")
+        result = value.strftime("%Y%m%d")
+        print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
+        return result
+
+    # 숫자형 처리 (엑셀 시리얼 날짜 포함)
+    if isinstance(value, (int, float)):
+        # NaN 체크 (float인 경우)
+        if isinstance(value, float) and (pd.isna(value) or value != value):
+            return ""
+
+        num_value = int(value)
+
+        # 엑셀 시리얼 날짜 판단 (1~60000 범위면 시리얼 날짜로 간주)
+        # YYYYMMDD 형식은 최소 19000101 = 19000101 이므로 구분 가능
+        if 1 <= num_value <= 60000:
+            # 엑셀 시리얼 날짜를 datetime으로 변환
+            # 엑셀은 1900-01-01을 1로 시작하지만 1900년 윤년 버그가 있어 기준일 조정
+            base_date = datetime(1899, 12, 30)
+            actual_date = base_date + timedelta(days=num_value)
+            result = actual_date.strftime("%Y%m%d")
+            print(f"[DEBUG] safe_date: 엑셀 시리얼 {num_value} -> '{result}'")
+            return result
+        else:
+            # YYYYMMDD 형식의 숫자로 간주
+            str_value = str(num_value)
+            if len(str_value) == 8:
+                print(f"[DEBUG] safe_date: int YYYYMMDD {num_value} -> '{str_value}'")
+                return str_value
+            else:
+                print(f"[WARNING] safe_date: 알 수 없는 숫자 형식 {num_value} -> ''")
+                return ""
 
     # 문자열 처리
     if isinstance(value, str):
+        # 빈 문자열 체크
+        if not value.strip():
+            print(f"[DEBUG] safe_date: 빈 문자열 발견 -> ''")
+            return ""
+
         # 구분자 제거 후 YYYYMMDD 형식으로 변환
         cleaned = value.replace("-", "").replace("/", "").strip()
+
         if len(cleaned) >= 8:
-            return cleaned[:8]
-        return value
+            result = cleaned[:8]
+            # 숫자인지 확인
+            if not result.isdigit():
+                print(f"[WARNING] safe_date: 숫자가 아닌 날짜 '{value}' -> '{result}'")
+            else:
+                print(f"[DEBUG] safe_date: str '{value}' -> '{result}'")
+            return result
+        else:
+            print(f"[WARNING] safe_date: 날짜 길이 부족 '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
+            return ""  # 8자리 미만이면 빈 문자열 반환
 
     # 기타 타입은 문자열로 변환 시도
     str_value = str(value)
-    if len(str_value) >= 8:
-        cleaned = str_value.replace("-", "").replace("/", "").strip()
-        return cleaned[:8]
 
-    return str_value
+    # 빈 문자열 체크
+    if not str_value.strip():
+        print(f"[DEBUG] safe_date: 빈 문자열 ({type(value).__name__}) -> ''")
+        return ""
+
+    cleaned = str_value.replace("-", "").replace("/", "").strip()
+
+    if len(cleaned) >= 8:
+        result = cleaned[:8]
+        # 숫자인지 확인
+        if not result.isdigit():
+            print(f"[WARNING] safe_date: 숫자가 아닌 날짜 ({type(value).__name__}) '{value}' -> '{result}'")
+        else:
+            print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
+        return result
+    else:
+        print(f"[WARNING] safe_date: 날짜 길이 부족 ({type(value).__name__}) '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
+        return ""  # 8자리 미만이면 빈 문자열 반환
 
 
 def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -881,8 +942,21 @@ def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> 
         # 시트명 결정
         sheet_name = "판매" if data_type == "sales" else "매입"
 
+        # 엑셀 읽기
         df = pd.read_excel(excel_file, sheet_name=sheet_name)
         print(f"✅ {len(df)}건의 데이터 로드 완료")
+
+        # 날짜 컬럼 확인 및 디버깅
+        if "일자" in df.columns:
+            print(f"\n[DEBUG] 엑셀에서 읽은 일자 컬럼 샘플 (처음 5개):")
+            for idx, val in df["일자"].head(5).items():
+                print(f"  - 행 {idx}: {repr(val)} (타입: {type(val).__name__})")
+
+            # 날짜 타입 통계
+            date_types = df["일자"].apply(lambda x: type(x).__name__).value_counts()
+            print(f"\n[DEBUG] 일자 컬럼 타입 분포:")
+            for dtype, count in date_types.items():
+                print(f"  - {dtype}: {count}건")
 
         if df.empty:
             print("❌ 데이터가 비어있습니다.")
@@ -1355,73 +1429,32 @@ if __name__ == "__main__":
         print("  export ECOUNT_COM_CODE='your-company-code'")
         sys.exit(1)
 
-    # 명령행 인자 처리
-    mode = sys.argv[1] if len(sys.argv) > 1 else "all"
+    # 메뉴 출력
+    print("\n" + "=" * 80)
+    print("                     EZAdmin → eCount 통합 처리 시스템")
+    print("=" * 80)
+    print("\n실행할 기능을 선택하세요:")
+    print("  1) 이지어드민 업로드")
+    print("  2) 쿠팡 업로드")
+    print("  3) 누락건 중간배치부터 업로드")
+    print("  4) 이카운트 로그인 테스트")
+    print("  5) 세트상품 관리")
+    print()
 
-    if mode == "login":
-        # 로그인만 테스트
-        print("=" * 80)
-        print("이카운트 로그인 테스트")
-        print("=" * 80)
-        try:
-            result = login_ecount(
-                com_code=COM_CODE,
-                user_id=USER_ID,
-                api_cert_key=API_CERT_KEY,
-                lan_type=LAN_TYPE,
-                zone=ZONE,
-                test=USE_TEST_SERVER,
-            )
+    choice = input("선택 (1-5): ").strip()
 
-            # SESSION_ID 추출
-            data = result.get("Data", {}) or {}
-            datas = data.get("Datas", {}) or {}
-            session_id = datas.get("SESSION_ID")
-
-            if session_id:
-                print(f"\n✅ 로그인 성공")
-                print(f"SESSION_ID: {session_id}")
-            else:
-                print("\n❌ SESSION_ID를 찾을 수 없습니다. 응답 구조를 확인하세요.")
-
-        except Exception as e:
-            print(f"\n❌ 로그인 실패: {e}")
-
-    elif mode == "convert":
-        # 엑셀 변환만 수행
-        print("=" * 80)
-        print("이지어드민 엑셀 변환")
-        print("=" * 80)
-        from excel_converter import process_ezadmin_to_ecount, save_to_excel
-        try:
-            result, pending_mappings = process_ezadmin_to_ecount()
-            save_to_excel(result, "output_ecount.xlsx")
-            print(f"\n✅ 변환 완료:")
-            print(f"  - 판매: {len(result['sales'])}건")
-            print(f"  - 매입: {len(result['purchase'])}건")
-            print(f"  - 매입전표: {len(result['voucher'])}건")
-
-            if pending_mappings:
-                print(f"\n⚠️  수동 매핑 필요: {len(pending_mappings)}건")
-                print("   python main.py 를 실행하여 웹 에디터로 매핑하세요.")
-
-        except Exception as e:
-            print(f"\n❌ 변환 실패: {e}")
-
-    elif mode == "fixupload":
+    if choice == "3":
         # 배치 재업로드 모드
         print("=" * 80)
         print("배치 재업로드 (이지어드민)")
         print("=" * 80)
 
         # 엑셀 파일 경로 입력
-        if len(sys.argv) > 2:
-            excel_file = sys.argv[2]
-        else:
-            excel_file = input("\n엑셀 파일 경로를 입력하세요: ").strip()
+        excel_file = input("\n엑셀 파일 경로를 입력하세요: ").strip()
 
         if not excel_file:
             print("❌ 파일 경로를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 판매/매입 선택
@@ -1429,10 +1462,7 @@ if __name__ == "__main__":
         print("  1) 판매 (sales)")
         print("  2) 매입 (purchase)")
 
-        if len(sys.argv) > 3:
-            data_choice = sys.argv[3]
-        else:
-            data_choice = input("\n선택 (1 또는 2): ").strip()
+        data_choice = input("\n선택 (1 또는 2): ").strip()
 
         if data_choice == "1":
             data_type = "sales"
@@ -1440,21 +1470,21 @@ if __name__ == "__main__":
             data_type = "purchase"
         else:
             print("❌ 잘못된 선택입니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 시작 배치 번호 입력
-        if len(sys.argv) > 4:
-            start_batch_str = sys.argv[4]
-        else:
-            start_batch_str = input("\n시작 배치 번호를 입력하세요 (1부터 시작): ").strip()
+        start_batch_str = input("\n시작 배치 번호를 입력하세요 (1부터 시작): ").strip()
 
         try:
             start_batch = int(start_batch_str)
             if start_batch < 1:
                 print("❌ 배치 번호는 1 이상이어야 합니다.")
+                input("\n엔터키를 눌러 종료하세요...")
                 sys.exit(1)
         except ValueError:
             print("❌ 올바른 숫자를 입력하세요.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         # 재업로드 실행
@@ -1487,47 +1517,37 @@ if __name__ == "__main__":
             print(f"\n❌ 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
 
-    elif mode == "coupang":
+        input("\n엔터키를 눌러 종료하세요...")
+
+    elif choice == "2":
         # 쿠팡 로켓그로스 처리
         print("=" * 80)
         print("쿠팡 로켓그로스 판매 데이터 처리")
         print("=" * 80)
 
         # 날짜 입력 받기
-        start_date = None
-        end_date = None
+        print("\n날짜 입력 방법:")
+        print("  1) 단일 날짜: YYYY-MM-DD")
+        print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
+        date_input = input("\n처리할 날짜를 입력하세요: ").strip()
 
-        if len(sys.argv) > 2:
-            start_date = sys.argv[2]
-            # 종료 날짜도 제공되었는지 확인
-            if len(sys.argv) > 3:
-                end_date = sys.argv[3]
+        if not date_input:
+            print("❌ 날짜를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
+            sys.exit(1)
+
+        # 공백으로 분리
+        dates = date_input.split()
+        if len(dates) == 1:
+            start_date = dates[0]
+            end_date = None
+        elif len(dates) == 2:
+            start_date = dates[0]
+            end_date = dates[1]
         else:
-            # 대화형 입력
-            print("\n날짜 입력 방법:")
-            print("  1) 단일 날짜: YYYY-MM-DD")
-            print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
-            date_input = input("\n처리할 날짜를 입력하세요: ").strip()
-
-            if not date_input:
-                print("❌ 날짜를 입력하지 않았습니다.")
-                sys.exit(1)
-
-            # 공백으로 분리
-            dates = date_input.split()
-            if len(dates) == 1:
-                start_date = dates[0]
-            elif len(dates) == 2:
-                start_date = dates[0]
-                end_date = dates[1]
-            else:
-                print("❌ 올바른 날짜 형식이 아닙니다.")
-                sys.exit(1)
-
-        if not start_date:
-            print("❌ 시작 날짜를 입력하지 않았습니다.")
+            print("❌ 올바른 날짜 형식이 아닙니다.")
+            input("\n엔터키를 눌러 종료하세요...")
             sys.exit(1)
 
         try:
@@ -1609,10 +1629,11 @@ if __name__ == "__main__":
             print(f"\n❌ 처리 실패: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
 
-    else:
-        # 통합 처리 (기본)
+        input("\n엔터키를 눌러 종료하세요...")
+
+    elif choice == "1":
+        # 이지어드민 업로드
         try:
             results = process_and_upload()
 
@@ -1641,4 +1662,67 @@ if __name__ == "__main__":
 
         except Exception as e:
             print(f"\n❌ 처리 실패: {e}")
-            sys.exit(1)
+
+        input("\n엔터키를 눌러 종료하세요...")
+
+    elif choice == "4":
+        # 로그인 테스트
+        print("=" * 80)
+        print("이카운트 로그인 테스트")
+        print("=" * 80)
+        try:
+            result = login_ecount(
+                com_code=COM_CODE,
+                user_id=USER_ID,
+                api_cert_key=API_CERT_KEY,
+                lan_type=LAN_TYPE,
+                zone=ZONE,
+                test=USE_TEST_SERVER,
+            )
+
+            # 전체 응답 출력 (디버깅용)
+            print("\n[디버깅] 전체 API 응답:")
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+
+            # SESSION_ID 추출
+            data = result.get("Data", {}) or {}
+            datas = data.get("Datas", {}) or {}
+            session_id = datas.get("SESSION_ID")
+
+            if session_id:
+                print(f"\n✅ 로그인 성공")
+                print(f"SESSION_ID: {session_id}")
+            else:
+                print("\n❌ SESSION_ID를 찾을 수 없습니다.")
+                print("응답 구조를 확인하세요:")
+                print(f"  - Data 존재: {bool(data)}")
+                print(f"  - Datas 존재: {bool(datas)}")
+                if datas:
+                    print(f"  - Datas 키 목록: {list(datas.keys())}")
+
+        except Exception as e:
+            print(f"\n❌ 로그인 실패: {e}")
+
+        input("\n엔터키를 눌러 종료하세요...")
+
+    elif choice == "5":
+        # 세트상품 관리 에디터
+        print("=" * 80)
+        print("세트상품 관리 에디터")
+        print("=" * 80)
+        try:
+            from set_product_editor import start_editor
+            print("\n세트상품 관리 웹 에디터를 시작합니다...")
+            print("브라우저에서 http://localhost:5002 로 접속하세요.")
+            print("종료하려면 Ctrl+C를 누르세요.\n")
+            start_editor(port=5002, debug=False)
+        except Exception as e:
+            print(f"\n❌ 세트상품 에디터 시작 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
+        input("\n엔터키를 눌러 종료하세요...")
+
+    else:
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5 중 하나를 선택하세요.")
+        input("\n엔터키를 눌러 종료하세요...")

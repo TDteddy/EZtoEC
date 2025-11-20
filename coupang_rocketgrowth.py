@@ -89,7 +89,7 @@ def fetch_coupang_sales_data(target_date: str) -> pd.DataFrame:
 
 def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict]]:
     """
-    상품 매핑 검증 및 자동 매칭
+    상품 매핑 검증 및 자동 매칭 (세트상품 지원)
 
     Args:
         df: 쿠팡 판매 데이터 DataFrame
@@ -109,6 +109,8 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
         df["brand"] = ""
         df["actual_quantity"] = 0
         df["cost_price"] = 0.0
+        df["is_set_product"] = False
+        df["set_items"] = None  # 세트상품 구성품 리스트
 
         print(f"\n[검증] 쿠팡 상품 {len(df)}건 매핑 확인 중...")
 
@@ -123,13 +125,16 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
         # 각 고유 옵션에 대해 매핑 확인
         for option_name, indices in unique_options.items():
-            # DB에서 매핑 조회
-            mapping = db.get_mapping(option_name)
+            # DB에서 매핑 조회 (세트상품 지원)
+            mapping = db.get_mapping_with_set(option_name)
 
             if mapping:
                 # 매핑 존재
                 cost_price = float(mapping.get("cost_price", 0))
-                print(f"  ✅ [{option_name}] → {mapping['standard_product_name']} "
+                is_set = mapping.get("is_set_product", False)
+                set_marker = " [세트]" if is_set else ""
+
+                print(f"  ✅ [{option_name}] → {mapping['standard_product_name']}{set_marker} "
                       f"(x{mapping['quantity_multiplier']}, {mapping['brand']}, 원가: {cost_price:,.0f}원)")
 
                 # 모든 해당 행 업데이트
@@ -140,6 +145,9 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                     df.at[idx, "brand"] = mapping["brand"]
                     df.at[idx, "actual_quantity"] = qty_net * mapping["quantity_multiplier"]
                     df.at[idx, "cost_price"] = cost_price
+                    df.at[idx, "is_set_product"] = is_set
+                    if is_set and mapping.get("items"):
+                        df.at[idx, "set_items"] = mapping["items"]
             else:
                 # 매핑 없음 - GPT 자동 매칭 시도
                 print(f"  🤖 [{option_name}] GPT 자동 매칭 시도 중...")
@@ -203,7 +211,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
 def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    쿠팡 판매 데이터를 이카운트 형식으로 변환
+    쿠팡 판매 데이터를 이카운트 형식으로 변환 (세트상품 지원)
 
     Args:
         df: 매핑된 쿠팡 판매 데이터
@@ -230,7 +238,7 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
     except:
         date_obj = date.today()
 
-    # 판매 데이터 생성
+    # 판매 데이터 생성 (세트상품 확장 포함)
     sales_list = []
     for _, row in df_mapped.iterrows():
         brand = row["brand"]
@@ -238,79 +246,185 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
 
         # 매출액 (부가세 포함)
         total_amount = int(row.get("Sales_total_amount_at_sales_report_coupang_2p", 0) or 0)
-        supply_amt = int(total_amount / 1.1)
-        vat_amt = total_amount - supply_amt
 
-        sales_list.append({
-            "일자": date_obj,
-            "순번": "",
-            "브랜드": project,
-            "판매채널": SELLER_NAME,
-            "거래처코드": "",
-            "거래처명": SELLER_NAME,
-            "출하창고": FIXED_WAREHOUSE_CODE,
-            "통화": "",
-            "환율": "",
-            "주문번호": "",
-            "상품코드": "",
-            "품목명": row["standard_product_name"],
-            "옵션": "",
-            "규격": "",
-            "수량": row["actual_quantity"],
-            "단가(vat포함)": int(total_amount / row["actual_quantity"]) if row["actual_quantity"] > 0 else 0,
-            "단가": "",
-            "외화금액": "",
-            "공급가액": supply_amt,
-            "부가세": vat_amt,
-            "송장번호": "",
-            "수령자주소": "",
-            "수령자이름": "",
-            "수령자전화": "",
-            "수령자휴대폰": "",
-            "배송메모": "",
-            "주문상세번호": "",
-            "생산전표생성": "",
-            "판매처": SELLER_NAME
-        })
+        # 세트상품인 경우 구성품별로 분할
+        is_set = row.get("is_set_product", False)
+        set_items = row.get("set_items")
+
+        if is_set and set_items:
+            # 세트상품: 구성품별로 행 생성
+            # 총 원가를 기준으로 각 구성품의 매출 비중 계산
+            total_cost = sum(float(item.get("cost_price", 0)) * item.get("quantity", 1)
+                            for item in set_items)
+
+            qty_multiplier = row["quantity_multiplier"]
+
+            for item in set_items:
+                item_cost = float(item.get("cost_price", 0))
+                item_qty = item.get("quantity", 1)
+                item_total_cost = item_cost * item_qty
+
+                # 매출 비중에 따른 금액 배분
+                if total_cost > 0:
+                    amount_ratio = item_total_cost / total_cost
+                else:
+                    amount_ratio = 1 / len(set_items)
+
+                item_amount = int(total_amount * amount_ratio)
+                supply_amt = int(item_amount / 1.1)
+                vat_amt = item_amount - supply_amt
+
+                # 실제 수량 = 구성품 수량 × 주문 수량 × 수량배수
+                actual_qty = item_qty * qty_multiplier
+
+                sales_list.append({
+                    "일자": date_obj,
+                    "순번": "",
+                    "브랜드": project,
+                    "판매채널": SELLER_NAME,
+                    "거래처코드": "",
+                    "거래처명": SELLER_NAME,
+                    "출하창고": FIXED_WAREHOUSE_CODE,
+                    "통화": "",
+                    "환율": "",
+                    "주문번호": "",
+                    "상품코드": "",
+                    "품목명": item["standard_product_name"],
+                    "옵션": "",
+                    "규격": "",
+                    "수량": actual_qty,
+                    "단가(vat포함)": int(item_amount / actual_qty) if actual_qty > 0 else 0,
+                    "단가": "",
+                    "외화금액": "",
+                    "공급가액": supply_amt,
+                    "부가세": vat_amt,
+                    "송장번호": "",
+                    "수령자주소": "",
+                    "수령자이름": "",
+                    "수령자전화": "",
+                    "수령자휴대폰": "",
+                    "배송메모": "",
+                    "주문상세번호": "",
+                    "생산전표생성": "",
+                    "판매처": SELLER_NAME
+                })
+        else:
+            # 일반 상품: 기존 로직
+            supply_amt = int(total_amount / 1.1)
+            vat_amt = total_amount - supply_amt
+
+            sales_list.append({
+                "일자": date_obj,
+                "순번": "",
+                "브랜드": project,
+                "판매채널": SELLER_NAME,
+                "거래처코드": "",
+                "거래처명": SELLER_NAME,
+                "출하창고": FIXED_WAREHOUSE_CODE,
+                "통화": "",
+                "환율": "",
+                "주문번호": "",
+                "상품코드": "",
+                "품목명": row["standard_product_name"],
+                "옵션": "",
+                "규격": "",
+                "수량": row["actual_quantity"],
+                "단가(vat포함)": int(total_amount / row["actual_quantity"]) if row["actual_quantity"] > 0 else 0,
+                "단가": "",
+                "외화금액": "",
+                "공급가액": supply_amt,
+                "부가세": vat_amt,
+                "송장번호": "",
+                "수령자주소": "",
+                "수령자이름": "",
+                "수령자전화": "",
+                "수령자휴대폰": "",
+                "배송메모": "",
+                "주문상세번호": "",
+                "생산전표생성": "",
+                "판매처": SELLER_NAME
+            })
 
     sales_df = pd.DataFrame(sales_list)
 
-    # 매입 데이터 생성 (원가 기준)
+    # 매입 데이터 생성 (원가 기준, 세트상품 확장 포함)
     purchase_list = []
     for _, row in df_mapped.iterrows():
         brand = row["brand"]
         project = f"{brand}_국내"
 
-        # DB에서 조회한 원가 사용 (부가세 포함)
-        cost_price = float(row.get("cost_price", 0))
-        actual_qty = row["actual_quantity"]
+        # 세트상품인 경우 구성품별로 분할
+        is_set = row.get("is_set_product", False)
+        set_items = row.get("set_items")
 
-        # 총 원가 = 단가 × 수량
-        total_cost = int(cost_price * actual_qty)
-        supply_amt = int(total_cost / 1.1)
-        vat_amt = total_cost - supply_amt
+        if is_set and set_items:
+            # 세트상품: 구성품별로 행 생성
+            qty_multiplier = row["quantity_multiplier"]
 
-        purchase_list.append({
-            "일자": date_obj,
-            "순번": "",
-            "브랜드": project,
-            "판매채널": SELLER_NAME,
-            "거래처코드": "",
-            "거래처명": SELLER_NAME,
-            "입고창고": FIXED_WAREHOUSE_CODE,
-            "통화": "",
-            "환율": "",
-            "품목코드": "",
-            "품목명": row["standard_product_name"],
-            "규격명": "",
-            "수량": actual_qty,
-            "단가": int(cost_price),
-            "외화금액": "",
-            "공급가액": supply_amt,
-            "부가세": vat_amt,
-            "적요": f"{project} {SELLER_NAME}",
-            "판매처": SELLER_NAME
-        })
+            for item in set_items:
+                item_cost = float(item.get("cost_price", 0))
+                item_qty = item.get("quantity", 1)
+
+                # 실제 수량 = 구성품 수량 × 주문 수량 × 수량배수
+                actual_qty = item_qty * qty_multiplier
+
+                # 총 원가 = 단가 × 수량
+                total_cost = int(item_cost * actual_qty)
+                supply_amt = int(total_cost / 1.1)
+                vat_amt = total_cost - supply_amt
+
+                purchase_list.append({
+                    "일자": date_obj,
+                    "순번": "",
+                    "브랜드": project,
+                    "판매채널": SELLER_NAME,
+                    "거래처코드": "",
+                    "거래처명": SELLER_NAME,
+                    "입고창고": FIXED_WAREHOUSE_CODE,
+                    "통화": "",
+                    "환율": "",
+                    "품목코드": "",
+                    "품목명": item["standard_product_name"],
+                    "규격명": "",
+                    "수량": actual_qty,
+                    "단가": int(item_cost),
+                    "외화금액": "",
+                    "공급가액": supply_amt,
+                    "부가세": vat_amt,
+                    "적요": f"{project} {SELLER_NAME}",
+                    "판매처": SELLER_NAME
+                })
+        else:
+            # 일반 상품: 기존 로직
+            cost_price = float(row.get("cost_price", 0))
+            actual_qty = row["actual_quantity"]
+
+            # 총 원가 = 단가 × 수량
+            total_cost = int(cost_price * actual_qty)
+            supply_amt = int(total_cost / 1.1)
+            vat_amt = total_cost - supply_amt
+
+            purchase_list.append({
+                "일자": date_obj,
+                "순번": "",
+                "브랜드": project,
+                "판매채널": SELLER_NAME,
+                "거래처코드": "",
+                "거래처명": SELLER_NAME,
+                "입고창고": FIXED_WAREHOUSE_CODE,
+                "통화": "",
+                "환율": "",
+                "품목코드": "",
+                "품목명": row["standard_product_name"],
+                "규격명": "",
+                "수량": actual_qty,
+                "단가": int(cost_price),
+                "외화금액": "",
+                "공급가액": supply_amt,
+                "부가세": vat_amt,
+                "적요": f"{project} {SELLER_NAME}",
+                "판매처": SELLER_NAME
+            })
 
     purchase_df = pd.DataFrame(purchase_list)
 
@@ -362,7 +476,7 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
         commission_supply = int(commission_total / 1.1)
         commission_vat = commission_total - commission_supply
 
-        # 운송료 전표
+        # 운송료 전표 (매입계정코드 8019)
         if shipping_total > 0:
             vouchers.append({
                 "전표일자": date_val,
@@ -371,15 +485,19 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
                 "거래처코드": "",
                 "거래처명": dept,
                 "부가세유형": "과세",
-                "품목명": "운송료",
-                "수량": 1,
-                "단가": shipping_supply,
+                "신용카드/승인번호": "",
                 "공급가액": shipping_supply,
+                "외화금액": "",
+                "환율": "",
                 "부가세": shipping_vat,
-                "합계": shipping_total
+                "적요": "운송료",
+                "매입계정코드": "8019",
+                "돈나간계좌번호": "",
+                "채무번호": "",
+                "만기일자": ""
             })
 
-        # 수수료 전표
+        # 수수료 전표 (매입계정코드 8029)
         if commission_total > 0:
             vouchers.append({
                 "전표일자": date_val,
@@ -388,12 +506,16 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAM
                 "거래처코드": "",
                 "거래처명": dept,
                 "부가세유형": "과세",
-                "품목명": "수수료",
-                "수량": 1,
-                "단가": commission_supply,
+                "신용카드/승인번호": "",
                 "공급가액": commission_supply,
+                "외화금액": "",
+                "환율": "",
                 "부가세": commission_vat,
-                "합계": commission_total
+                "적요": "수수료",
+                "매입계정코드": "8029",
+                "돈나간계좌번호": "",
+                "채무번호": "",
+                "만기일자": ""
             })
 
     voucher_df = pd.DataFrame(vouchers)

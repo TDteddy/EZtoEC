@@ -809,11 +809,11 @@ def save_to_excel(result: Dict[str, any], output_file: str = "output_ecount.xlsx
     # 통합 파일 저장
     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
         if not sales_df.empty:
-            sales_df.to_excel(writer, index=False, sheet_name="판매_데이터")
+            sales_df.to_excel(writer, index=False, sheet_name="판매")
         if not purchase_df.empty:
-            purchase_df.to_excel(writer, index=False, sheet_name="구매_데이터")
+            purchase_df.to_excel(writer, index=False, sheet_name="매입")
         if not voucher_df.empty:
-            voucher_df.to_excel(writer, index=False, sheet_name="매입_데이터_운반비+수수료")
+            voucher_df.to_excel(writer, index=False, sheet_name="매입전표")
 
     print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건, 매입전표 {len(voucher_df)}건 저장 완료")
 
@@ -826,11 +826,11 @@ def save_to_excel(result: Dict[str, any], output_file: str = "output_ecount.xlsx
         fname = f"output_ecount_{safe_filename(proj)}.xlsx"
         with pd.ExcelWriter(fname, engine="openpyxl") as writer:
             if not data["sales"].empty:
-                data["sales"].to_excel(writer, index=False, sheet_name="판매_데이터")
+                data["sales"].to_excel(writer, index=False, sheet_name="판매")
             if not data["purchase"].empty:
-                data["purchase"].to_excel(writer, index=False, sheet_name="구매_데이터")
+                data["purchase"].to_excel(writer, index=False, sheet_name="매입")
             if not data["voucher"].empty:
-                data["voucher"].to_excel(writer, index=False, sheet_name="매입_데이터_운반비+수수료")
+                data["voucher"].to_excel(writer, index=False, sheet_name="매입전표")
 
         print(f"✅ 프로젝트별 저장 완료: {proj} → {fname}")
 
