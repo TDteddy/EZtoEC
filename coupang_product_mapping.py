@@ -607,11 +607,31 @@ class CoupangProductMappingDB:
             성공 여부
         """
         try:
+            # 기존 세트명 조회 (매핑 테이블 업데이트용)
+            self.cursor.execute(
+                "SELECT set_name FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            old_set = self.cursor.fetchone()
+            old_set_name = old_set['set_name'] if old_set else None
+
             # 세트상품 기본정보 수정
             self.cursor.execute(
                 "UPDATE set_products SET set_name = %s, brand = %s WHERE id = %s",
                 (set_name.strip(), brand.strip(), set_id)
             )
+
+            # 세트명이 변경된 경우 쿠팡 매핑 테이블도 업데이트
+            if old_set_name and old_set_name != set_name.strip():
+                self.cursor.execute(
+                    """UPDATE coupang_product_mapping
+                       SET standard_product_name = %s
+                       WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                    (set_name.strip(), old_set_name)
+                )
+                updated_mappings = self.cursor.rowcount
+                if updated_mappings > 0:
+                    print(f"  📝 쿠팡 매핑 {updated_mappings}건 업데이트: '{old_set_name}' → '{set_name}'")
 
             # 기존 구성품 삭제
             self.cursor.execute(
@@ -637,6 +657,7 @@ class CoupangProductMappingDB:
     def delete_set_product(self, set_id: int) -> bool:
         """
         세트상품 삭제 (구성품도 함께 삭제됨 - CASCADE)
+        연결된 쿠팡 매핑도 함께 삭제됨
 
         Args:
             set_id: 세트상품 ID
@@ -645,20 +666,49 @@ class CoupangProductMappingDB:
             성공 여부
         """
         try:
+            # 세트명 조회 (매핑 삭제용)
+            self.cursor.execute(
+                "SELECT set_name FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            set_product = self.cursor.fetchone()
+
+            if not set_product:
+                print(f"⚠️  세트상품을 찾을 수 없음: ID {set_id}")
+                return False
+
+            set_name = set_product['set_name']
+
+            # 연결된 쿠팡 매핑 확인
+            self.cursor.execute(
+                """SELECT COUNT(*) as count FROM coupang_product_mapping
+                   WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                (set_name,)
+            )
+            mapping_count = self.cursor.fetchone()['count']
+
+            # 연결된 쿠팡 매핑 삭제
+            if mapping_count > 0:
+                self.cursor.execute(
+                    """DELETE FROM coupang_product_mapping
+                       WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                    (set_name,)
+                )
+                print(f"  🗑️  연결된 쿠팡 매핑 {mapping_count}건 삭제")
+
+            # 세트상품 삭제 (구성품은 CASCADE로 자동 삭제)
             self.cursor.execute(
                 "DELETE FROM set_products WHERE id = %s",
                 (set_id,)
             )
-            self.conn.commit()
 
-            if self.cursor.rowcount > 0:
-                print(f"✅ 세트상품 삭제: ID {set_id}")
-                return True
-            else:
-                print(f"⚠️  세트상품을 찾을 수 없음: ID {set_id}")
-                return False
+            self.conn.commit()
+            print(f"✅ 세트상품 삭제: '{set_name}' (ID: {set_id})")
+            return True
+
         except Error as e:
             print(f"❌ 세트상품 삭제 실패: {e}")
+            self.conn.rollback()
             return False
 
     def add_mapping_with_set(self, coupang_option_name: str, standard_product_name: str,
