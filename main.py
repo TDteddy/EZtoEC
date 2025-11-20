@@ -23,6 +23,120 @@ COM_CODE = os.environ.get("ECOUNT_COM_CODE")      # 회사코드
 LAN_TYPE = os.environ.get("ECOUNT_LAN_TYPE", "ko-KR")      # 언어 (기본: ko-KR)
 
 
+# ===== 실패 기록 저장 함수 =====
+def save_failure_log(failure_info: Dict[str, Any]) -> str:
+    """
+    업로드 실패 정보를 텍스트 파일로 저장
+
+    Args:
+        failure_info: 실패 정보 딕셔너리
+            - type: "ezadmin" 또는 "coupang"
+            - file_path: 처리한 파일 경로 (이지어드민)
+            - date: 처리한 날짜 (쿠팡)
+            - date_range: 날짜 범위 (쿠팡 범위 처리)
+            - data_type: "sales", "purchase", "voucher"
+            - failed_batches: 실패한 배치 번호 리스트
+            - total_batches: 전체 배치 수
+            - success_count: 성공 건수
+            - fail_count: 실패 건수
+            - error_details: 상세 오류 정보
+
+    Returns:
+        생성된 파일 경로
+    """
+    # 실패기록 디렉토리 생성
+    log_dir = "실패기록"
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 파일명: 실패기록_YYYYMMDD_HHMMSS.txt
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"실패기록_{timestamp}.txt"
+    filepath = os.path.join(log_dir, filename)
+
+    # 파일 내용 작성
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write("=" * 80 + "\n")
+        f.write("업로드 실패 기록\n")
+        f.write("=" * 80 + "\n\n")
+
+        f.write(f"기록 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+        # 데이터 소스
+        data_source = failure_info.get("type", "unknown")
+        if data_source == "ezadmin":
+            f.write("데이터 소스: 이지어드민 (EZAdmin)\n")
+            if failure_info.get("file_path"):
+                f.write(f"파일 경로: {failure_info['file_path']}\n")
+        elif data_source == "coupang":
+            f.write("데이터 소스: 쿠팡 로켓그로스\n")
+            if failure_info.get("date"):
+                f.write(f"처리 날짜: {failure_info['date']}\n")
+            elif failure_info.get("date_range"):
+                f.write(f"날짜 범위: {failure_info['date_range']}\n")
+
+        # 데이터 타입
+        data_type = failure_info.get("data_type", "unknown")
+        data_type_map = {
+            "sales": "판매",
+            "purchase": "매입",
+            "voucher": "전표"
+        }
+        f.write(f"데이터 타입: {data_type_map.get(data_type, data_type)}\n\n")
+
+        # 배치 정보
+        f.write("-" * 80 + "\n")
+        f.write("배치 정보\n")
+        f.write("-" * 80 + "\n")
+        total_batches = failure_info.get("total_batches", 0)
+        failed_batches = failure_info.get("failed_batches", [])
+        f.write(f"전체 배치 수: {total_batches}개\n")
+        f.write(f"실패 배치 수: {len(failed_batches)}개\n")
+        if failed_batches:
+            f.write(f"실패한 배치 번호: {', '.join(map(str, failed_batches))}\n")
+        f.write("\n")
+
+        # 처리 결과
+        f.write("-" * 80 + "\n")
+        f.write("처리 결과\n")
+        f.write("-" * 80 + "\n")
+        success_count = failure_info.get("success_count", 0)
+        fail_count = failure_info.get("fail_count", 0)
+        f.write(f"성공: {success_count}건\n")
+        f.write(f"실패: {fail_count}건\n\n")
+
+        # 재업로드 명령어
+        f.write("=" * 80 + "\n")
+        f.write("재업로드 방법\n")
+        f.write("=" * 80 + "\n\n")
+
+        if failed_batches:
+            first_failed = min(failed_batches)
+            f.write("프로그램 실행 후 아래와 같이 선택하세요:\n\n")
+            f.write("  선택: 3 (누락건 중간배치부터 업로드)\n")
+            if data_source == "ezadmin":
+                f.write(f"  파일 경로: {failure_info.get('file_path', '(파일 경로 입력)')}\n")
+            f.write(f"  데이터 타입: {1 if data_type == 'sales' else 2}\n")
+            f.write(f"  시작 배치 번호: {first_failed}\n\n")
+            f.write(f"※ 배치 {first_failed}번부터 다시 업로드됩니다.\n")
+
+        # 상세 오류 정보
+        error_details = failure_info.get("error_details", [])
+        if error_details:
+            f.write("\n" + "-" * 80 + "\n")
+            f.write("상세 오류 정보\n")
+            f.write("-" * 80 + "\n")
+            for idx, error in enumerate(error_details, 1):
+                f.write(f"\n[오류 {idx}]\n")
+                for key, value in error.items():
+                    f.write(f"  {key}: {value}\n")
+
+        f.write("\n" + "=" * 80 + "\n")
+        f.write("이 파일을 참고하여 재업로드를 진행하세요.\n")
+        f.write("=" * 80 + "\n")
+
+    return filepath
+
+
 def build_login_url(zone: str, test: bool = False) -> str:
     """
     zone = "AD" 고정. test=True면 sboapi{ZONE}, 아니면 oapi{ZONE}.
@@ -797,48 +911,77 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
         total_success_cnt = 0
         total_fail_cnt = 0
         all_slip_nos = []
+        failed_batches = []
 
         try:
             for batch_idx, batch_df in enumerate(sales_batches, 1):
                 if total_batches > 1:
                     print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
 
-                sale_result = save_sale(
-                    session_id=session_id,
-                    sales_df=batch_df,
-                    zone=ZONE,
-                    test=USE_TEST_SERVER
-                )
+                try:
+                    sale_result = save_sale(
+                        session_id=session_id,
+                        sales_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
 
-                result_data = sale_result.get("Data", {})
-                success_cnt = result_data.get("SuccessCnt", 0)
-                fail_cnt = result_data.get("FailCnt", 0)
-                slip_nos = result_data.get("SlipNos", [])
+                    result_data = sale_result.get("Data", {})
+                    success_cnt = result_data.get("SuccessCnt", 0)
+                    fail_cnt = result_data.get("FailCnt", 0)
+                    slip_nos = result_data.get("SlipNos", [])
 
-                total_success_cnt += success_cnt
-                total_fail_cnt += fail_cnt
-                all_slip_nos.extend(slip_nos)
+                    total_success_cnt += success_cnt
+                    total_fail_cnt += fail_cnt
+                    all_slip_nos.extend(slip_nos)
 
-                if total_batches > 1:
-                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+                    if fail_cnt > 0:
+                        failed_batches.append(batch_idx)
+                        if total_batches > 1:
+                            print(f"     ⚠️  배치 {batch_idx}: 성공 {success_cnt}건, 실패 {fail_cnt}건")
 
-                # 실패 상세
-                if fail_cnt > 0:
-                    result_details = result_data.get("ResultDetails", [])
-                    for detail in result_details:
-                        if not detail.get("IsSuccess", False):
-                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+                        # 실패 상세
+                        result_details = result_data.get("ResultDetails", [])
+                        for detail in result_details:
+                            if not detail.get("IsSuccess", False):
+                                print(f"         오류: {detail.get('TotalError', '')}")
+                    else:
+                        if total_batches > 1:
+                            print(f"     ✅ 배치 {batch_idx}: 성공 {success_cnt}건")
+
+                except Exception as e:
+                    print(f"     ❌ 배치 {batch_idx} 업로드 실패: {e}")
+                    failed_batches.append(batch_idx)
+                    continue
 
             results["sales_upload"] = {
-                "success": True,
+                "success": len(failed_batches) == 0,
                 "success_count": total_success_cnt,
                 "fail_count": total_fail_cnt,
-                "slip_nos": all_slip_nos
+                "slip_nos": all_slip_nos,
+                "batch_count": total_batches,
+                "failed_batches": failed_batches
             }
 
             print(f"\n✅ 판매 업로드 완료:")
+            print(f"  - 총 배치 수: {total_batches}개")
             print(f"  - 성공: {total_success_cnt}건")
             print(f"  - 실패: {total_fail_cnt}건")
+            if failed_batches:
+                print(f"  ⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+                # 실패 기록 파일 저장
+                failure_info = {
+                    "type": "coupang",
+                    "date": target_date,
+                    "data_type": "sales",
+                    "failed_batches": failed_batches,
+                    "total_batches": total_batches,
+                    "success_count": total_success_cnt,
+                    "fail_count": total_fail_cnt
+                }
+                log_file = save_failure_log(failure_info)
+                print(f"\n  📝 실패 기록 저장: {log_file}")
 
         except Exception as e:
             print(f"❌ 판매 업로드 실패: {e}")
@@ -857,47 +1000,77 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
         total_success_cnt = 0
         total_fail_cnt = 0
         all_slip_nos = []
+        failed_batches = []
 
         try:
             for batch_idx, batch_df in enumerate(purchase_batches, 1):
                 if total_batches > 1:
                     print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
 
-                purchase_result = save_purchase(
-                    session_id=session_id,
-                    purchase_df=batch_df,
-                    zone=ZONE,
-                    test=USE_TEST_SERVER
-                )
+                try:
+                    purchase_result = save_purchase(
+                        session_id=session_id,
+                        purchase_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
 
-                result_data = purchase_result.get("Data", {})
-                success_cnt = result_data.get("SuccessCnt", 0)
-                fail_cnt = result_data.get("FailCnt", 0)
-                slip_nos = result_data.get("SlipNos", [])
+                    result_data = purchase_result.get("Data", {})
+                    success_cnt = result_data.get("SuccessCnt", 0)
+                    fail_cnt = result_data.get("FailCnt", 0)
+                    slip_nos = result_data.get("SlipNos", [])
 
-                total_success_cnt += success_cnt
-                total_fail_cnt += fail_cnt
-                all_slip_nos.extend(slip_nos)
+                    total_success_cnt += success_cnt
+                    total_fail_cnt += fail_cnt
+                    all_slip_nos.extend(slip_nos)
 
-                if total_batches > 1:
-                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+                    if fail_cnt > 0:
+                        failed_batches.append(batch_idx)
+                        if total_batches > 1:
+                            print(f"     ⚠️  배치 {batch_idx}: 성공 {success_cnt}건, 실패 {fail_cnt}건")
 
-                if fail_cnt > 0:
-                    result_details = result_data.get("ResultDetails", [])
-                    for detail in result_details:
-                        if not detail.get("IsSuccess", False):
-                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+                        # 실패 상세
+                        result_details = result_data.get("ResultDetails", [])
+                        for detail in result_details:
+                            if not detail.get("IsSuccess", False):
+                                print(f"         오류: {detail.get('TotalError', '')}")
+                    else:
+                        if total_batches > 1:
+                            print(f"     ✅ 배치 {batch_idx}: 성공 {success_cnt}건")
+
+                except Exception as e:
+                    print(f"     ❌ 배치 {batch_idx} 업로드 실패: {e}")
+                    failed_batches.append(batch_idx)
+                    continue
 
             results["purchase_upload"] = {
-                "success": True,
+                "success": len(failed_batches) == 0,
                 "success_count": total_success_cnt,
                 "fail_count": total_fail_cnt,
-                "slip_nos": all_slip_nos
+                "slip_nos": all_slip_nos,
+                "batch_count": total_batches,
+                "failed_batches": failed_batches
             }
 
             print(f"\n✅ 구매 업로드 완료:")
+            print(f"  - 총 배치 수: {total_batches}개")
             print(f"  - 성공: {total_success_cnt}건")
             print(f"  - 실패: {total_fail_cnt}건")
+            if failed_batches:
+                print(f"  ⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+                # 실패 기록 파일 저장
+                failure_info = {
+                    "type": "coupang",
+                    "date": target_date,
+                    "data_type": "purchase",
+                    "failed_batches": failed_batches,
+                    "total_batches": total_batches,
+                    "success_count": total_success_cnt,
+                    "fail_count": total_fail_cnt
+                }
+                log_file = save_failure_log(failure_info)
+                print(f"\n  📝 실패 기록 저장: {log_file}")
 
         except Exception as e:
             print(f"❌ 구매 업로드 실패: {e}")
@@ -1080,6 +1253,20 @@ def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> 
         print(f"실패: {total_fail_cnt}건")
         if failed_batches:
             print(f"⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+            # 실패 기록 파일 저장
+            failure_info = {
+                "type": "ezadmin",
+                "file_path": excel_file,
+                "data_type": data_type,
+                "failed_batches": failed_batches,
+                "total_batches": total_batches,
+                "success_count": total_success_cnt,
+                "fail_count": total_fail_cnt
+            }
+            log_file = save_failure_log(failure_info)
+            print(f"\n📝 실패 기록 저장: {log_file}")
+            print(f"   이 파일을 참고하여 재업로드를 진행하세요.")
 
     except Exception as e:
         print(f"❌ 업로드 실패: {e}")
@@ -1274,51 +1461,78 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         total_success_cnt = 0
         total_fail_cnt = 0
         all_slip_nos = []
+        failed_batches = []
 
         try:
             for batch_idx, batch_df in enumerate(sales_batches, 1):
                 if total_batches > 1:
                     print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
 
-                sale_result = save_sale(
-                    session_id=session_id,
-                    sales_df=batch_df,
-                    zone=ZONE,
-                    test=USE_TEST_SERVER
-                )
+                try:
+                    sale_result = save_sale(
+                        session_id=session_id,
+                        sales_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
 
-                # 결과 분석
-                result_data = sale_result.get("Data", {})
-                success_cnt = result_data.get("SuccessCnt", 0)
-                fail_cnt = result_data.get("FailCnt", 0)
-                slip_nos = result_data.get("SlipNos", [])
+                    # 결과 분석
+                    result_data = sale_result.get("Data", {})
+                    success_cnt = result_data.get("SuccessCnt", 0)
+                    fail_cnt = result_data.get("FailCnt", 0)
+                    slip_nos = result_data.get("SlipNos", [])
 
-                total_success_cnt += success_cnt
-                total_fail_cnt += fail_cnt
-                all_slip_nos.extend(slip_nos)
+                    total_success_cnt += success_cnt
+                    total_fail_cnt += fail_cnt
+                    all_slip_nos.extend(slip_nos)
 
-                if total_batches > 1:
-                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+                    if fail_cnt > 0:
+                        failed_batches.append(batch_idx)
+                        if total_batches > 1:
+                            print(f"     ⚠️  배치 {batch_idx}: 성공 {success_cnt}건, 실패 {fail_cnt}건")
 
-                # 실패 상세
-                if fail_cnt > 0:
-                    result_details = result_data.get("ResultDetails", [])
-                    for detail in result_details:
-                        if not detail.get("IsSuccess", False):
-                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+                        # 실패 상세
+                        result_details = result_data.get("ResultDetails", [])
+                        for detail in result_details:
+                            if not detail.get("IsSuccess", False):
+                                print(f"         오류: {detail.get('TotalError', '')}")
+                    else:
+                        if total_batches > 1:
+                            print(f"     ✅ 배치 {batch_idx}: 성공 {success_cnt}건")
+
+                except Exception as e:
+                    print(f"     ❌ 배치 {batch_idx} 업로드 실패: {e}")
+                    failed_batches.append(batch_idx)
+                    continue
 
             results["sales_upload"] = {
-                "success": True,
+                "success": len(failed_batches) == 0,
                 "success_count": total_success_cnt,
                 "fail_count": total_fail_cnt,
                 "slip_nos": all_slip_nos,
-                "batch_count": total_batches
+                "batch_count": total_batches,
+                "failed_batches": failed_batches
             }
 
             print(f"\n✅ 판매 업로드 완료:")
             print(f"  - 총 배치 수: {total_batches}개")
             print(f"  - 성공: {total_success_cnt}건")
             print(f"  - 실패: {total_fail_cnt}건")
+            if failed_batches:
+                print(f"  ⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+                # 실패 기록 파일 저장
+                failure_info = {
+                    "type": "ezadmin",
+                    "data_type": "sales",
+                    "failed_batches": failed_batches,
+                    "total_batches": total_batches,
+                    "success_count": total_success_cnt,
+                    "fail_count": total_fail_cnt
+                }
+                log_file = save_failure_log(failure_info)
+                print(f"\n  📝 실패 기록 저장: {log_file}")
+
             if all_slip_nos:
                 print(f"  - 전표번호: {', '.join(all_slip_nos[:10])}" +
                       (f" 외 {len(all_slip_nos) - 10}건..." if len(all_slip_nos) > 10 else ""))
@@ -1348,51 +1562,72 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         total_success_cnt = 0
         total_fail_cnt = 0
         all_slip_nos = []
+        failed_batches = []
 
         try:
             for batch_idx, batch_df in enumerate(purchase_batches, 1):
                 if total_batches > 1:
                     print(f"\n  📤 배치 {batch_idx}/{total_batches} 업로드 중... ({len(batch_df)}건)")
 
-                purchase_result = save_purchase(
-                    session_id=session_id,
-                    purchase_df=batch_df,
-                    zone=ZONE,
-                    test=USE_TEST_SERVER
-                )
+                try:
+                    purchase_result = save_purchase(
+                        session_id=session_id,
+                        purchase_df=batch_df,
+                        zone=ZONE,
+                        test=USE_TEST_SERVER
+                    )
 
-                # 결과 분석
-                result_data = purchase_result.get("Data", {})
-                success_cnt = result_data.get("SuccessCnt", 0)
-                fail_cnt = result_data.get("FailCnt", 0)
-                slip_nos = result_data.get("SlipNos", [])
+                    # 결과 분석
+                    result_data = purchase_result.get("Data", {})
+                    success_cnt = result_data.get("SuccessCnt", 0)
+                    fail_cnt = result_data.get("FailCnt", 0)
+                    slip_nos = result_data.get("SlipNos", [])
 
-                total_success_cnt += success_cnt
-                total_fail_cnt += fail_cnt
-                all_slip_nos.extend(slip_nos)
+                    total_success_cnt += success_cnt
+                    total_fail_cnt += fail_cnt
+                    all_slip_nos.extend(slip_nos)
 
-                if total_batches > 1:
-                    print(f"     ✅ 배치 {batch_idx} 완료: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+                    if fail_cnt > 0:
+                        failed_batches.append(batch_idx)
+                        if total_batches > 1:
+                            print(f"     ⚠️  배치 {batch_idx}: 성공 {success_cnt}건, 실패 {fail_cnt}건")
+                    else:
+                        if total_batches > 1:
+                            print(f"     ✅ 배치 {batch_idx}: 성공 {success_cnt}건")
 
-                # 실패 상세
-                if fail_cnt > 0:
-                    result_details = result_data.get("ResultDetails", [])
-                    for detail in result_details:
-                        if not detail.get("IsSuccess", False):
-                            print(f"     ⚠️ 오류: {detail.get('TotalError', '')}")
+                except Exception as e:
+                    print(f"     ❌ 배치 {batch_idx} 업로드 실패: {e}")
+                    failed_batches.append(batch_idx)
+                    continue
 
             results["purchase_upload"] = {
-                "success": True,
+                "success": len(failed_batches) == 0,
                 "success_count": total_success_cnt,
                 "fail_count": total_fail_cnt,
                 "slip_nos": all_slip_nos,
-                "batch_count": total_batches
+                "batch_count": total_batches,
+                "failed_batches": failed_batches
             }
 
             print(f"\n✅ 구매 업로드 완료:")
             print(f"  - 총 배치 수: {total_batches}개")
             print(f"  - 성공: {total_success_cnt}건")
             print(f"  - 실패: {total_fail_cnt}건")
+            if failed_batches:
+                print(f"  ⚠️  실패한 배치: {', '.join(map(str, failed_batches))}")
+
+                # 실패 기록 파일 저장
+                failure_info = {
+                    "type": "ezadmin",
+                    "data_type": "purchase",
+                    "failed_batches": failed_batches,
+                    "total_batches": total_batches,
+                    "success_count": total_success_cnt,
+                    "fail_count": total_fail_cnt
+                }
+                log_file = save_failure_log(failure_info)
+                print(f"\n  📝 실패 기록 저장: {log_file}")
+
             if all_slip_nos:
                 print(f"  - 전표번호: {', '.join(all_slip_nos[:10])}" +
                       (f" 외 {len(all_slip_nos) - 10}건..." if len(all_slip_nos) > 10 else ""))
