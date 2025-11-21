@@ -662,6 +662,300 @@ EDITOR_TEMPLATE = """
 </html>
 """
 
+# 완료 페이지 템플릿
+SUCCESS_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>완료 - 세트상품 관리</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .success-container {
+            background: white;
+            border-radius: 20px;
+            padding: 60px 40px;
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            animation: scaleIn 0.6s ease-out 0.2s both;
+        }
+
+        @keyframes scaleIn {
+            from {
+                transform: scale(0);
+            }
+            to {
+                transform: scale(1);
+            }
+        }
+
+        .success-icon svg {
+            width: 60px;
+            height: 60px;
+            stroke: white;
+            stroke-width: 3;
+            fill: none;
+            stroke-dasharray: 100;
+            stroke-dashoffset: 100;
+            animation: drawCheck 0.8s ease-out 0.5s forwards;
+        }
+
+        @keyframes drawCheck {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 20px;
+            animation: fadeIn 0.6s ease-out 0.4s both;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+
+        .message {
+            color: #666;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            line-height: 1.6;
+            animation: fadeIn 0.6s ease-out 0.6s both;
+        }
+
+        .details {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 30px 0;
+            animation: fadeIn 0.6s ease-out 0.8s both;
+        }
+
+        .details h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .detail-item:last-child {
+            border-bottom: none;
+        }
+
+        .detail-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .detail-value {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .items-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+
+        .items-list li {
+            padding: 8px 0;
+            color: #555;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .items-list li:last-child {
+            border-bottom: none;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 40px;
+            animation: fadeIn 0.6s ease-out 1s both;
+        }
+
+        .btn {
+            padding: 15px 40px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+        }
+
+        .btn-secondary:hover {
+            background: #f8f9ff;
+            transform: translateY(-3px);
+        }
+
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid #f0f0f0;
+            animation: fadeIn 0.6s ease-out 1.2s both;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-number {
+            display: block;
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #999;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <div class="success-icon">
+            <svg viewBox="0 0 52 52">
+                <path d="M14 27l7 7 16-16"/>
+            </svg>
+        </div>
+
+        <h1>{{ title }}</h1>
+
+        <p class="message">{{ message }}</p>
+
+        {% if set_product %}
+        <div class="details">
+            <h3>{{ action_text }} 상세 정보</h3>
+            <div class="detail-item">
+                <span class="detail-label">세트상품명</span>
+                <span class="detail-value">{{ set_product.set_name }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">브랜드</span>
+                <span class="detail-value">{{ set_product.brand }}</span>
+            </div>
+            {% if set_product.items %}
+            <div class="detail-item" style="display: block;">
+                <span class="detail-label" style="display: block; margin-bottom: 10px;">구성 상품</span>
+                <ul class="items-list">
+                    {% for item in set_product.items %}
+                    <li>{{ item.standard_product_name }} × {{ item.quantity }}개 ({{ item.cost_price|int }}원)</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% set total_cost = namespace(value=0) %}
+            {% for item in set_product.items %}
+                {% set total_cost.value = total_cost.value + (item.cost_price * item.quantity) %}
+            {% endfor %}
+            <div class="detail-item">
+                <span class="detail-label">총 원가</span>
+                <span class="detail-value" style="color: #28a745; font-size: 1.2em;">{{ total_cost.value|int }}원</span>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="button-group">
+            <a href="/" class="btn btn-primary">추가로 등록하기</a>
+            <a href="/" class="btn btn-secondary">목록으로 돌아가기</a>
+        </div>
+
+        <div class="stats">
+            <div class="stat-item">
+                <span class="stat-number">{{ total_sets }}</span>
+                <span class="stat-label">총 세트상품</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-number">{{ total_products }}</span>
+                <span class="stat-label">개별 상품</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
 
 @app.route('/')
 def index():
@@ -679,6 +973,56 @@ def index():
         set_products=set_products,
         message=message,
         message_type=message_type
+    )
+
+
+@app.route('/success')
+def success():
+    """완료 페이지"""
+    action = request.args.get('action', 'create')  # create, update, delete
+    set_id = request.args.get('set_id', None)
+
+    # 액션별 타이틀 및 메시지
+    action_map = {
+        'create': {
+            'title': '세트상품 등록 완료',
+            'action_text': '등록된 세트상품',
+            'message': '세트상품이 성공적으로 등록되었습니다.'
+        },
+        'update': {
+            'title': '세트상품 수정 완료',
+            'action_text': '수정된 세트상품',
+            'message': '세트상품 정보가 성공적으로 수정되었습니다.'
+        },
+        'delete': {
+            'title': '세트상품 삭제 완료',
+            'action_text': '삭제된 세트상품',
+            'message': '세트상품이 성공적으로 삭제되었습니다.'
+        }
+    }
+
+    action_info = action_map.get(action, action_map['create'])
+
+    with CoupangProductMappingDB() as db:
+        set_product = None
+        if set_id and action != 'delete':
+            set_product = db.get_set_product(int(set_id))
+
+        # 통계 정보
+        all_set_products = db.get_all_set_products()
+        all_standard_products = db.get_all_standard_products()
+        total_sets = len(all_set_products)
+        total_products = len(all_standard_products)
+
+    return render_template_string(
+        SUCCESS_TEMPLATE,
+        title=action_info['title'],
+        action_text=action_info['action_text'],
+        message=action_info['message'],
+        action=action,
+        set_product=set_product,
+        total_sets=total_sets,
+        total_products=total_products
     )
 
 
@@ -722,9 +1066,7 @@ def create_set_product():
             for item in items:
                 db.add_set_product_item(set_id, item['standard_product_name'], item['quantity'])
 
-            return redirect(url_for('index',
-                                    message=f"세트상품 '{set_name}'이(가) 생성되었습니다.",
-                                    type='success'))
+            return redirect(url_for('success', action='create', set_id=set_id))
         else:
             return redirect(url_for('index',
                                     message=f"세트상품 생성 실패. 이미 존재하는 이름인지 확인해주세요.",
@@ -769,9 +1111,7 @@ def update_set_product():
         success = db.update_set_product(int(set_id), set_name, brand, items)
 
         if success:
-            return redirect(url_for('index',
-                                    message=f"세트상품 '{set_name}'이(가) 수정되었습니다.",
-                                    type='success'))
+            return redirect(url_for('success', action='update', set_id=set_id))
         else:
             return redirect(url_for('index',
                                     message='세트상품 수정에 실패했습니다.',
@@ -785,9 +1125,7 @@ def delete_set_product(set_id):
         success = db.delete_set_product(set_id)
 
         if success:
-            return redirect(url_for('index',
-                                    message='세트상품이 삭제되었습니다.',
-                                    type='success'))
+            return redirect(url_for('success', action='delete'))
         else:
             return redirect(url_for('index',
                                     message='세트상품 삭제에 실패했습니다.',

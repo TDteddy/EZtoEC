@@ -156,20 +156,23 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
                 if gpt_result and gpt_result.get("confidence", 0) >= 0.7:
                     # 신뢰도 높은 경우 자동 저장
-                    print(f"  ✅ [{option_name}] → {gpt_result['standard_product_name']} "
+                    is_set = gpt_result.get("is_set_product", False)
+                    set_marker = " [세트]" if is_set else ""
+                    print(f"  ✅ [{option_name}] → {gpt_result['standard_product_name']}{set_marker} "
                           f"(x{gpt_result['quantity_multiplier']}, {gpt_result['brand']}) "
                           f"[신뢰도: {gpt_result['confidence']:.0%}]")
 
-                    # DB에 매핑 저장
+                    # DB에 매핑 저장 (세트상품 여부 포함)
                     db.add_mapping(
                         coupang_option_name=option_name,
                         standard_product_name=gpt_result["standard_product_name"],
                         quantity_multiplier=gpt_result["quantity_multiplier"],
-                        brand=gpt_result["brand"]
+                        brand=gpt_result["brand"],
+                        is_set_product=is_set
                     )
 
                     # 원가 정보 조회 (방금 저장한 매핑에서)
-                    saved_mapping = db.get_mapping(option_name)
+                    saved_mapping = db.get_mapping_with_set(option_name)
                     cost_price = float(saved_mapping.get("cost_price", 0)) if saved_mapping else 0.0
 
                     # 모든 해당 행 업데이트
@@ -180,6 +183,9 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                         df.at[idx, "brand"] = gpt_result["brand"]
                         df.at[idx, "actual_quantity"] = qty_net * gpt_result["quantity_multiplier"]
                         df.at[idx, "cost_price"] = cost_price
+                        df.at[idx, "is_set_product"] = is_set
+                        if is_set and saved_mapping and saved_mapping.get("items"):
+                            df.at[idx, "set_items"] = saved_mapping["items"]
                 else:
                     # 신뢰도 낮거나 실패 - 수동 처리 필요
                     confidence = gpt_result.get("confidence", 0) if gpt_result else 0

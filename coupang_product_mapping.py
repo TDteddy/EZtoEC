@@ -303,15 +303,16 @@ class CoupangProductMappingDB:
     # ===== 쿠팡 상품 매핑 관리 =====
 
     def add_mapping(self, coupang_option_name: str, standard_product_name: str,
-                    quantity_multiplier: int, brand: str) -> bool:
+                    quantity_multiplier: int, brand: str, is_set_product: bool = False) -> bool:
         """
         쿠팡 상품 매핑 추가
 
         Args:
             coupang_option_name: 쿠팡 옵션명
-            standard_product_name: 이지어드민 스탠다드 상품명
+            standard_product_name: 이지어드민 스탠다드 상품명 또는 세트상품명
             quantity_multiplier: 수량 배수
             brand: 브랜드
+            is_set_product: 세트상품 여부 (기본값: False)
 
         Returns:
             성공 여부
@@ -319,12 +320,13 @@ class CoupangProductMappingDB:
         try:
             self.cursor.execute(
                 """INSERT INTO coupang_product_mapping
-                   (coupang_option_name, standard_product_name, quantity_multiplier, brand)
-                   VALUES (%s, %s, %s, %s)""",
-                (coupang_option_name.strip(), standard_product_name.strip(), quantity_multiplier, brand.strip())
+                   (coupang_option_name, standard_product_name, quantity_multiplier, brand, is_set_product)
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (coupang_option_name.strip(), standard_product_name.strip(), quantity_multiplier, brand.strip(), is_set_product)
             )
             self.conn.commit()
-            print(f"✅ 매핑 추가: '{coupang_option_name}' → '{standard_product_name}' (x{quantity_multiplier}, {brand})")
+            set_marker = " [세트]" if is_set_product else ""
+            print(f"✅ 매핑 추가: '{coupang_option_name}' → '{standard_product_name}'{set_marker} (x{quantity_multiplier}, {brand})")
             return True
         except Error as e:
             if "Duplicate entry" in str(e):
@@ -607,11 +609,31 @@ class CoupangProductMappingDB:
             성공 여부
         """
         try:
+            # 기존 세트명 조회 (매핑 테이블 업데이트용)
+            self.cursor.execute(
+                "SELECT set_name FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            old_set = self.cursor.fetchone()
+            old_set_name = old_set['set_name'] if old_set else None
+
             # 세트상품 기본정보 수정
             self.cursor.execute(
                 "UPDATE set_products SET set_name = %s, brand = %s WHERE id = %s",
                 (set_name.strip(), brand.strip(), set_id)
             )
+
+            # 세트명이 변경된 경우 쿠팡 매핑 테이블도 업데이트
+            if old_set_name and old_set_name != set_name.strip():
+                self.cursor.execute(
+                    """UPDATE coupang_product_mapping
+                       SET standard_product_name = %s
+                       WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                    (set_name.strip(), old_set_name)
+                )
+                updated_mappings = self.cursor.rowcount
+                if updated_mappings > 0:
+                    print(f"  📝 쿠팡 매핑 {updated_mappings}건 업데이트: '{old_set_name}' → '{set_name}'")
 
             # 기존 구성품 삭제
             self.cursor.execute(
@@ -637,6 +659,7 @@ class CoupangProductMappingDB:
     def delete_set_product(self, set_id: int) -> bool:
         """
         세트상품 삭제 (구성품도 함께 삭제됨 - CASCADE)
+        연결된 쿠팡 매핑도 함께 삭제됨
 
         Args:
             set_id: 세트상품 ID
@@ -645,20 +668,49 @@ class CoupangProductMappingDB:
             성공 여부
         """
         try:
+            # 세트명 조회 (매핑 삭제용)
+            self.cursor.execute(
+                "SELECT set_name FROM set_products WHERE id = %s",
+                (set_id,)
+            )
+            set_product = self.cursor.fetchone()
+
+            if not set_product:
+                print(f"⚠️  세트상품을 찾을 수 없음: ID {set_id}")
+                return False
+
+            set_name = set_product['set_name']
+
+            # 연결된 쿠팡 매핑 확인
+            self.cursor.execute(
+                """SELECT COUNT(*) as count FROM coupang_product_mapping
+                   WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                (set_name,)
+            )
+            mapping_count = self.cursor.fetchone()['count']
+
+            # 연결된 쿠팡 매핑 삭제
+            if mapping_count > 0:
+                self.cursor.execute(
+                    """DELETE FROM coupang_product_mapping
+                       WHERE standard_product_name = %s AND is_set_product = TRUE""",
+                    (set_name,)
+                )
+                print(f"  🗑️  연결된 쿠팡 매핑 {mapping_count}건 삭제")
+
+            # 세트상품 삭제 (구성품은 CASCADE로 자동 삭제)
             self.cursor.execute(
                 "DELETE FROM set_products WHERE id = %s",
                 (set_id,)
             )
-            self.conn.commit()
 
-            if self.cursor.rowcount > 0:
-                print(f"✅ 세트상품 삭제: ID {set_id}")
-                return True
-            else:
-                print(f"⚠️  세트상품을 찾을 수 없음: ID {set_id}")
-                return False
+            self.conn.commit()
+            print(f"✅ 세트상품 삭제: '{set_name}' (ID: {set_id})")
+            return True
+
         except Error as e:
             print(f"❌ 세트상품 삭제 실패: {e}")
+            self.conn.rollback()
             return False
 
     def add_mapping_with_set(self, coupang_option_name: str, standard_product_name: str,
@@ -748,7 +800,7 @@ class CoupangProductMappingDB:
 
     def match_product_with_gpt(self, coupang_option_name: str) -> Optional[Dict]:
         """
-        GPT를 사용하여 쿠팡 옵션명을 스탠다드 상품과 매칭
+        GPT를 사용하여 쿠팡 옵션명을 스탠다드 상품 또는 세트상품과 매칭
         GPT 응답을 검증하여 DB에 실제 존재하는 상품명만 반환
 
         Args:
@@ -760,7 +812,8 @@ class CoupangProductMappingDB:
                 "quantity_multiplier": int,
                 "brand": str,
                 "confidence": float,
-                "reason": str
+                "reason": str,
+                "is_set_product": bool  (세트상품 여부)
             } 또는 None
         """
         if not OPENAI_API_KEY:
@@ -771,45 +824,65 @@ class CoupangProductMappingDB:
             # 모든 스탠다드 상품 목록 가져오기
             standard_products = self.get_all_standard_products()
 
-            if not standard_products:
-                print("⚠️  스탠다드 상품 목록이 비어있습니다.")
+            # 모든 세트상품 목록 가져오기
+            set_products = self.get_all_set_products()
+
+            if not standard_products and not set_products:
+                print("⚠️  상품 목록이 비어있습니다.")
                 return None
 
             # 상품명 딕셔너리 생성 (검증용)
-            product_name_set = {p['product_name'].strip().lower(): p['product_name'] for p in standard_products}
+            product_name_set = {}
+            set_name_set = {}
 
-            # GPT에게 매칭 요청
+            for p in standard_products:
+                product_name_set[p['product_name'].strip().lower()] = p['product_name']
+
+            for s in set_products:
+                set_name_set[s['set_name'].strip().lower()] = s['set_name']
+
+            # GPT에게 매칭 요청 (개별 상품 + 세트상품)
             product_list = "\n".join([
-                f"- {p['product_name']} (브랜드: {p['brand']})"
+                f"- {p['product_name']} (브랜드: {p['brand']}, 타입: 개별상품)"
                 for p in standard_products
             ])
+
+            set_list = "\n".join([
+                f"- {s['set_name']} (브랜드: {s['brand']}, 타입: 세트상품)"
+                for s in set_products
+            ])
+
+            all_products_list = product_list + "\n" + set_list if set_list else product_list
 
             prompt = f"""
 다음은 쿠팡 로켓그로스에서 판매된 상품의 옵션명입니다:
 "{coupang_option_name}"
 
-아래는 이지어드민의 스탠다드 상품 목록입니다:
-{product_list}
+아래는 이지어드민의 상품 목록입니다 (개별상품 + 세트상품):
+{all_products_list}
 
-이 쿠팡 옵션명이 어떤 스탠다드 상품에 해당하는지 분석하고, 다음 정보를 JSON 형식으로 반환해주세요:
+이 쿠팡 옵션명이 어떤 상품에 해당하는지 분석하고, 다음 정보를 JSON 형식으로 반환해주세요:
 
-1. standard_product_name: 매칭되는 스탠다드 상품명
+1. standard_product_name: 매칭되는 상품명 (개별상품 또는 세트상품명)
 2. quantity_multiplier: 수량 배수 (예: "3개입"이면 3, "5+1"이면 6, "1개"면 1)
 3. brand: 브랜드명 (닥터시드/딸로/테르스/에이더 중 하나) 혹은 시작이 ADDWS01 처럼 영문5자리 숫자2자리로 이루어진경우 에이더입니다.
-4. confidence: 매칭 신뢰도 (0.0 ~ 1.0)
-5. reason: 매칭 이유 설명
+4. is_set_product: 세트상품 여부 (true/false)
+5. confidence: 매칭 신뢰도 (0.0 ~ 1.0)
+6. reason: 매칭 이유 설명
 
 응답 형식:
 {{
   "standard_product_name": "상품명",
   "quantity_multiplier": 숫자,
   "brand": "브랜드명",
+  "is_set_product": true 또는 false,
   "confidence": 0.0~1.0,
   "reason": "설명"
 }}
 
 예시:
-standard_product_name은 "ADWRB01 손목 보호대 T1" 처럼 스탠다드 상품명을 반환해야합니다.
+- 개별상품: standard_product_name은 "ADWRB01 손목 보호대 T1", is_set_product: false
+- 세트상품: standard_product_name은 "닥터시드 건강 3종 세트", is_set_product: true
 
 매칭이 불확실하면 confidence를 낮게 설정하세요.
 매칭할 수 없으면 null을 반환하세요.
@@ -818,7 +891,7 @@ standard_product_name은 "ADWRB01 손목 보호대 T1" 처럼 스탠다드 상�
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
-                    {"role": "system", "content": "당신은 상품명 매칭 전문가입니다. 쿠팡 옵션명을 분석하여 정확한 스탠다드 상품명, 수량 배수, 브랜드를 찾아주세요."},
+                    {"role": "system", "content": "당신은 상품명 매칭 전문가입니다. 쿠팡 옵션명을 분석하여 정확한 상품명(개별상품 또는 세트상품), 수량 배수, 브랜드를 찾아주세요."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
@@ -835,35 +908,74 @@ standard_product_name은 "ADWRB01 손목 보호대 T1" 처럼 스탠다드 상�
                 return None
 
             gpt_product_name = result.get("standard_product_name", "").strip()
+            is_set = result.get("is_set_product", False)
 
             # ===== GPT 응답 검증: DB에 실제 존재하는지 확인 =====
-            if gpt_product_name.lower() in product_name_set:
-                # 정확히 일치하는 상품명 찾음
-                correct_name = product_name_set[gpt_product_name.lower()]
-                result["standard_product_name"] = correct_name
-                print(f"  ✅ GPT 응답 검증 통과: {correct_name}")
-                return result
 
-            # DB에 없는 경우: 유사도 매칭으로 가장 비슷한 상품 찾기
-            print(f"  ⚠️  GPT가 반환한 상품명이 DB에 없음: '{gpt_product_name}'")
-            print(f"  🔍 유사한 상품 검색 중...")
+            # 세트상품인 경우
+            if is_set:
+                if gpt_product_name.lower() in set_name_set:
+                    # 정확히 일치하는 세트상품명 찾음
+                    correct_name = set_name_set[gpt_product_name.lower()]
+                    result["standard_product_name"] = correct_name
+                    result["is_set_product"] = True
+                    print(f"  ✅ GPT 응답 검증 통과 [세트]: {correct_name}")
+                    return result
+                else:
+                    print(f"  ⚠️  GPT가 반환한 세트상품명이 DB에 없음: '{gpt_product_name}'")
+                    # 유사한 세트상품 검색
+                    from difflib import SequenceMatcher
+                    best_match = None
+                    best_similarity = 0.0
 
-            from difflib import SequenceMatcher
+                    for db_set in set_products:
+                        db_name = db_set['set_name']
+                        similarity = SequenceMatcher(None, gpt_product_name.lower(), db_name.lower()).ratio()
 
-            best_match = None
-            best_similarity = 0.0
+                        if similarity > best_similarity:
+                            best_similarity = similarity
+                            best_match = db_set
 
-            for db_product in standard_products:
-                db_name = db_product['product_name']
-                similarity = SequenceMatcher(None, gpt_product_name.lower(), db_name.lower()).ratio()
+                    # 유사도가 0.8 이상이면 자동 보정
+                    if best_match and best_similarity >= 0.8:
+                        print(f"  ✅ 유사 세트상품 발견 (유사도: {best_similarity:.0%}): {best_match['set_name']}")
+                        result["standard_product_name"] = best_match['set_name']
+                        result["is_set_product"] = True
+                        return result
+                    else:
+                        print(f"  ❌ 유사한 세트상품을 찾을 수 없음 (최고 유사도: {best_similarity:.0%})")
+                        return None
 
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = db_product
+            # 개별상품인 경우
+            else:
+                if gpt_product_name.lower() in product_name_set:
+                    # 정확히 일치하는 상품명 찾음
+                    correct_name = product_name_set[gpt_product_name.lower()]
+                    result["standard_product_name"] = correct_name
+                    result["is_set_product"] = False
+                    print(f"  ✅ GPT 응답 검증 통과: {correct_name}")
+                    return result
 
-            # 유사도가 0.8 이상이면 자동 보정
-            if best_match and best_similarity >= 0.8:
-                print(f"  ✅ 유사 상품 발견 (유사도: {best_similarity:.0%}): {best_match['product_name']}")
+                # DB에 없는 경우: 유사도 매칭으로 가장 비슷한 상품 찾기
+                print(f"  ⚠️  GPT가 반환한 상품명이 DB에 없음: '{gpt_product_name}'")
+                print(f"  🔍 유사한 상품 검색 중...")
+
+                from difflib import SequenceMatcher
+
+                best_match = None
+                best_similarity = 0.0
+
+                for db_product in standard_products:
+                    db_name = db_product['product_name']
+                    similarity = SequenceMatcher(None, gpt_product_name.lower(), db_name.lower()).ratio()
+
+                    if similarity > best_similarity:
+                        best_similarity = similarity
+                        best_match = db_product
+
+                # 유사도가 0.8 이상이면 자동 보정
+                if best_match and best_similarity >= 0.8:
+                    print(f"  ✅ 유사 상품 발견 (유사도: {best_similarity:.0%}): {best_match['product_name']}")
                 result["standard_product_name"] = best_match["product_name"]
                 result["brand"] = best_match["brand"]
                 # 신뢰도를 유사도에 비례해서 조정
