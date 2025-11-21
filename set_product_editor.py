@@ -968,22 +968,13 @@ def index():
             standard_products = db.get_all_standard_products()
             set_products = db.get_all_set_products()
 
-        # 디버깅: 데이터 타입 확인
-        print(f"[DEBUG] standard_products type: {type(standard_products)}, length: {len(standard_products) if isinstance(standard_products, list) else 'N/A'}")
-        print(f"[DEBUG] set_products type: {type(set_products)}, length: {len(set_products) if isinstance(set_products, list) else 'N/A'}")
-
         # 리스트가 아닌 경우 빈 리스트로 초기화
         if not isinstance(standard_products, list):
-            print(f"[WARNING] standard_products is not a list, resetting to empty list")
             standard_products = []
         if not isinstance(set_products, list):
-            print(f"[WARNING] set_products is not a list, resetting to empty list")
             set_products = []
 
     except Exception as e:
-        print(f"[ERROR] Failed to fetch data from DB: {e}")
-        import traceback
-        traceback.print_exc()
         standard_products = []
         set_products = []
         message = f"데이터베이스 조회 중 오류가 발생했습니다: {str(e)}"
@@ -1045,9 +1036,6 @@ def success():
             total_products = len(all_standard_products)
 
     except Exception as e:
-        print(f"[ERROR] Failed to fetch data in success page: {e}")
-        import traceback
-        traceback.print_exc()
         set_product = None
         total_sets = 0
         total_products = 0
