@@ -499,7 +499,7 @@ class CoupangProductMappingDB:
         모든 세트상품 조회 (구성품 포함)
 
         Returns:
-            세트상품 리스트 [{id, set_name, brand, items: [{standard_product_name, quantity}]}]
+            세트상품 리스트 [{id, set_name, brand, set_items: [{standard_product_name, quantity}]}]
         """
         try:
             # 모든 세트상품 가져오기
@@ -519,7 +519,8 @@ class CoupangProductMappingDB:
                        ORDER BY spi.id""",
                     (set_product['id'],)
                 )
-                set_product['items'] = self.cursor.fetchall()
+                # 딕셔너리의 .items() 메서드와 충돌하지 않도록 'set_items' 사용
+                set_product['set_items'] = self.cursor.fetchall()
 
             return set_products
         except Error as e:
@@ -553,7 +554,8 @@ class CoupangProductMappingDB:
                        ORDER BY spi.id""",
                     (set_id,)
                 )
-                set_product['items'] = self.cursor.fetchall()
+                # 딕셔너리의 .items() 메서드와 충돌하지 않도록 'set_items' 사용
+                set_product['set_items'] = self.cursor.fetchall()
 
             return set_product
         except Error as e:
@@ -587,7 +589,8 @@ class CoupangProductMappingDB:
                        ORDER BY spi.id""",
                     (set_product['id'],)
                 )
-                set_product['items'] = self.cursor.fetchall()
+                # 딕셔너리의 .items() 메서드와 충돌하지 않도록 'set_items' 사용
+                set_product['set_items'] = self.cursor.fetchall()
 
             return set_product
         except Error as e:
