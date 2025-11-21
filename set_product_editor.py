@@ -477,14 +477,14 @@ EDITOR_TEMPLATE = """
                     </h4>
 
                     <ul class="items-list">
-                        {% for item in set_product.items %}
+                        {% for item in set_product.set_items %}
                         <li>{{ item.standard_product_name }} x {{ item.quantity }}
                             ({{ item.cost_price|int }}원)</li>
                         {% endfor %}
                     </ul>
 
                     {% set total_cost = namespace(value=0) %}
-                    {% for item in set_product.items %}
+                    {% for item in set_product.set_items %}
                         {% set total_cost.value = total_cost.value + (item.cost_price * item.quantity) %}
                     {% endfor %}
                     <div class="cost-info">
@@ -915,17 +915,17 @@ SUCCESS_TEMPLATE = """
                 <span class="detail-label">브랜드</span>
                 <span class="detail-value">{{ set_product.brand }}</span>
             </div>
-            {% if set_product.items %}
+            {% if set_product.set_items %}
             <div class="detail-item" style="display: block;">
                 <span class="detail-label" style="display: block; margin-bottom: 10px;">구성 상품</span>
                 <ul class="items-list">
-                    {% for item in set_product.items %}
+                    {% for item in set_product.set_items %}
                     <li>{{ item.standard_product_name }} × {{ item.quantity }}개 ({{ item.cost_price|int }}원)</li>
                     {% endfor %}
                 </ul>
             </div>
             {% set total_cost = namespace(value=0) %}
-            {% for item in set_product.items %}
+            {% for item in set_product.set_items %}
                 {% set total_cost.value = total_cost.value + (item.cost_price * item.quantity) %}
             {% endfor %}
             <div class="detail-item">
