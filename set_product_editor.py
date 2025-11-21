@@ -963,9 +963,31 @@ def index():
     message = request.args.get('message', '')
     message_type = request.args.get('type', 'success')
 
-    with CoupangProductMappingDB() as db:
-        standard_products = db.get_all_standard_products()
-        set_products = db.get_all_set_products()
+    try:
+        with CoupangProductMappingDB() as db:
+            standard_products = db.get_all_standard_products()
+            set_products = db.get_all_set_products()
+
+        # 디버깅: 데이터 타입 확인
+        print(f"[DEBUG] standard_products type: {type(standard_products)}, length: {len(standard_products) if isinstance(standard_products, list) else 'N/A'}")
+        print(f"[DEBUG] set_products type: {type(set_products)}, length: {len(set_products) if isinstance(set_products, list) else 'N/A'}")
+
+        # 리스트가 아닌 경우 빈 리스트로 초기화
+        if not isinstance(standard_products, list):
+            print(f"[WARNING] standard_products is not a list, resetting to empty list")
+            standard_products = []
+        if not isinstance(set_products, list):
+            print(f"[WARNING] set_products is not a list, resetting to empty list")
+            set_products = []
+
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch data from DB: {e}")
+        import traceback
+        traceback.print_exc()
+        standard_products = []
+        set_products = []
+        message = f"데이터베이스 조회 중 오류가 발생했습니다: {str(e)}"
+        message_type = 'danger'
 
     return render_template_string(
         EDITOR_TEMPLATE,
@@ -1003,16 +1025,32 @@ def success():
 
     action_info = action_map.get(action, action_map['create'])
 
-    with CoupangProductMappingDB() as db:
-        set_product = None
-        if set_id and action != 'delete':
-            set_product = db.get_set_product(int(set_id))
+    try:
+        with CoupangProductMappingDB() as db:
+            set_product = None
+            if set_id and action != 'delete':
+                set_product = db.get_set_product(int(set_id))
 
-        # 통계 정보
-        all_set_products = db.get_all_set_products()
-        all_standard_products = db.get_all_standard_products()
-        total_sets = len(all_set_products)
-        total_products = len(all_standard_products)
+            # 통계 정보
+            all_set_products = db.get_all_set_products()
+            all_standard_products = db.get_all_standard_products()
+
+            # 리스트가 아닌 경우 빈 리스트로 초기화
+            if not isinstance(all_set_products, list):
+                all_set_products = []
+            if not isinstance(all_standard_products, list):
+                all_standard_products = []
+
+            total_sets = len(all_set_products)
+            total_products = len(all_standard_products)
+
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch data in success page: {e}")
+        import traceback
+        traceback.print_exc()
+        set_product = None
+        total_sets = 0
+        total_products = 0
 
     return render_template_string(
         SUCCESS_TEMPLATE,
