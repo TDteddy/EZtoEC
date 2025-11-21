@@ -611,7 +611,9 @@ EDITOR_TEMPLATE = """
             container.innerHTML = '';
             editItemIndex = 0;
 
-            setProduct.items.forEach((item, i) => {
+            // set_items로 변경 (items → set_items)
+            const items = setProduct.set_items || [];
+            items.forEach((item, i) => {
                 const row = document.createElement('div');
                 row.className = 'item-row';
                 row.innerHTML = `
