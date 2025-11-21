@@ -227,9 +227,7 @@ def safe_date(value: Any) -> str:
 
     # datetime.date, datetime.datetime, pd.Timestamp 처리
     if isinstance(value, (datetime, pd.Timestamp, date)):
-        result = value.strftime("%Y%m%d")
-        print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
-        return result
+        return value.strftime("%Y%m%d")
 
     # 숫자형 처리 (엑셀 시리얼 날짜 포함)
     if isinstance(value, (int, float)):
@@ -246,14 +244,11 @@ def safe_date(value: Any) -> str:
             # 엑셀은 1900-01-01을 1로 시작하지만 1900년 윤년 버그가 있어 기준일 조정
             base_date = datetime(1899, 12, 30)
             actual_date = base_date + timedelta(days=num_value)
-            result = actual_date.strftime("%Y%m%d")
-            print(f"[DEBUG] safe_date: 엑셀 시리얼 {num_value} -> '{result}'")
-            return result
+            return actual_date.strftime("%Y%m%d")
         else:
             # YYYYMMDD 형식의 숫자로 간주
             str_value = str(num_value)
             if len(str_value) == 8:
-                print(f"[DEBUG] safe_date: int YYYYMMDD {num_value} -> '{str_value}'")
                 return str_value
             else:
                 print(f"[WARNING] safe_date: 알 수 없는 숫자 형식 {num_value} -> ''")
@@ -263,7 +258,6 @@ def safe_date(value: Any) -> str:
     if isinstance(value, str):
         # 빈 문자열 체크
         if not value.strip():
-            print(f"[DEBUG] safe_date: 빈 문자열 발견 -> ''")
             return ""
 
         # 구분자 제거 후 YYYYMMDD 형식으로 변환
@@ -274,8 +268,6 @@ def safe_date(value: Any) -> str:
             # 숫자인지 확인
             if not result.isdigit():
                 print(f"[WARNING] safe_date: 숫자가 아닌 날짜 '{value}' -> '{result}'")
-            else:
-                print(f"[DEBUG] safe_date: str '{value}' -> '{result}'")
             return result
         else:
             print(f"[WARNING] safe_date: 날짜 길이 부족 '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
@@ -286,7 +278,6 @@ def safe_date(value: Any) -> str:
 
     # 빈 문자열 체크
     if not str_value.strip():
-        print(f"[DEBUG] safe_date: 빈 문자열 ({type(value).__name__}) -> ''")
         return ""
 
     cleaned = str_value.replace("-", "").replace("/", "").strip()
@@ -296,8 +287,6 @@ def safe_date(value: Any) -> str:
         # 숫자인지 확인
         if not result.isdigit():
             print(f"[WARNING] safe_date: 숫자가 아닌 날짜 ({type(value).__name__}) '{value}' -> '{result}'")
-        else:
-            print(f"[DEBUG] safe_date: {type(value).__name__} '{value}' -> '{result}'")
         return result
     else:
         print(f"[WARNING] safe_date: 날짜 길이 부족 ({type(value).__name__}) '{value}' (cleaned: '{cleaned}', len={len(cleaned)}) -> ''")
@@ -1118,18 +1107,6 @@ def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> 
         # 엑셀 읽기
         df = pd.read_excel(excel_file, sheet_name=sheet_name)
         print(f"✅ {len(df)}건의 데이터 로드 완료")
-
-        # 날짜 컬럼 확인 및 디버깅
-        if "일자" in df.columns:
-            print(f"\n[DEBUG] 엑셀에서 읽은 일자 컬럼 샘플 (처음 5개):")
-            for idx, val in df["일자"].head(5).items():
-                print(f"  - 행 {idx}: {repr(val)} (타입: {type(val).__name__})")
-
-            # 날짜 타입 통계
-            date_types = df["일자"].apply(lambda x: type(x).__name__).value_counts()
-            print(f"\n[DEBUG] 일자 컬럼 타입 분포:")
-            for dtype, count in date_types.items():
-                print(f"  - {dtype}: {count}건")
 
         if df.empty:
             print("❌ 데이터가 비어있습니다.")
