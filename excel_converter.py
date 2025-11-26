@@ -602,6 +602,114 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         return pd.DataFrame(), pd.DataFrame()
 
 
+# ===== 매출전표 생성 =====
+def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    sales_df를 (일자, 브랜드, 판매채널, 거래처명)으로 묶고,
+    공급가액과 부가세를 합산하여 매출전표 생성
+
+    Args:
+        sales_df: 판매 DataFrame
+
+    Returns:
+        매출전표 DataFrame
+    """
+    if sales_df.empty:
+        return pd.DataFrame()
+
+    need_cols = ["일자", "브랜드", "판매채널", "거래처명", "공급가액", "부가세"]
+    for c in need_cols:
+        if c not in sales_df.columns:
+            raise KeyError(f"매출전표 생성에 필요한 컬럼이 없습니다: {c}")
+
+    # (일자, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    base = (
+        sales_df[need_cols]
+        .groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
+        .agg({"공급가액": "sum", "부가세": "sum"})
+    )
+
+    rows = []
+    for _, r in base.iterrows():
+        rows.append({
+            "전표일자": r["일자"],
+            "브랜드": to_str(r["브랜드"]),
+            "판매채널": to_str(r["판매채널"]),
+            "거래처코드": "",
+            "거래처명": to_str(r["거래처명"]),
+            "부가세유형": "",
+            "공급가액": int(r["공급가액"]),
+            "외화금액": "",
+            "환율": "",
+            "부가세": int(r["부가세"]),
+            "적요": "",
+            "매출계정코드": "4019",
+            "입금계좌": ""
+        })
+
+    voucher = pd.DataFrame(rows, columns=[
+        "전표일자", "브랜드", "판매채널", "거래처코드", "거래처명", "부가세유형",
+        "공급가액", "외화금액", "환율", "부가세", "적요", "매출계정코드", "입금계좌"
+    ])
+    return voucher
+
+
+# ===== 원가매입전표 생성 =====
+def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    purchase_df를 (일자, 브랜드, 판매채널, 거래처명)으로 묶고,
+    공급가액과 부가세를 합산하여 원가매입전표 생성
+
+    Args:
+        purchase_df: 매입 DataFrame
+
+    Returns:
+        원가매입전표 DataFrame
+    """
+    if purchase_df.empty:
+        return pd.DataFrame()
+
+    need_cols = ["일자", "브랜드", "판매채널", "거래처명", "공급가액", "부가세"]
+    for c in need_cols:
+        if c not in purchase_df.columns:
+            raise KeyError(f"원가매입전표 생성에 필요한 컬럼이 없습니다: {c}")
+
+    # (일자, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    base = (
+        purchase_df[need_cols]
+        .groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
+        .agg({"공급가액": "sum", "부가세": "sum"})
+    )
+
+    rows = []
+    for _, r in base.iterrows():
+        rows.append({
+            "전표일자": r["일자"],
+            "브랜드": to_str(r["브랜드"]),
+            "판매채널": to_str(r["판매채널"]),
+            "거래처코드": "",
+            "거래처명": to_str(r["거래처명"]),
+            "부가세유형": "",
+            "신용카드/승인번호": "",
+            "공급가액": int(r["공급가액"]),
+            "외화금액": "",
+            "환율": "",
+            "부가세": int(r["부가세"]),
+            "적요": "",
+            "매입계정코드": "4519",
+            "돈나간계좌번호": "",
+            "채무번호": "",
+            "만기일자": ""
+        })
+
+    voucher = pd.DataFrame(rows, columns=[
+        "전표일자", "브랜드", "판매채널", "거래처코드", "거래처명", "부가세유형",
+        "신용카드/승인번호", "공급가액", "외화금액", "환율", "부가세", "적요",
+        "매입계정코드", "돈나간계좌번호", "채무번호", "만기일자"
+    ])
+    return voucher
+
+
 # ===== 매입전표(운송료/판매수수료) 생성 =====
 def build_voucher_from_sales(sales_df: pd.DataFrame, rate_book: dict) -> pd.DataFrame:
     """
@@ -672,7 +780,8 @@ def build_voucher_from_sales(sales_df: pd.DataFrame, rate_book: dict) -> pd.Data
 
 # ===== 프로젝트별 분리 =====
 def split_by_project(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
-                     voucher_df: pd.DataFrame) -> Dict[str, Dict[str, pd.DataFrame]]:
+                     sales_voucher_df: pd.DataFrame, cost_voucher_df: pd.DataFrame,
+                     fee_voucher_df: pd.DataFrame) -> Dict[str, Dict[str, pd.DataFrame]]:
     """
     프로젝트(브랜드)별로 데이터 분리
 
@@ -681,7 +790,9 @@ def split_by_project(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
             "브랜드명": {
                 "sales": DataFrame,
                 "purchase": DataFrame,
-                "voucher": DataFrame
+                "sales_voucher": DataFrame,  # 매출전표
+                "cost_voucher": DataFrame,   # 원가매입전표
+                "fee_voucher": DataFrame     # 운반비/수수료 매입전표
             },
             ...
         }
@@ -691,15 +802,19 @@ def split_by_project(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
         projects.update(sales_df["브랜드"].dropna().unique())
     if not purchase_df.empty and "브랜드" in purchase_df.columns:
         projects.update(purchase_df["브랜드"].dropna().unique())
-    if voucher_df is not None and not voucher_df.empty and "브랜드" in voucher_df.columns:
-        projects.update(voucher_df["브랜드"].dropna().unique())
+
+    for df in [sales_voucher_df, cost_voucher_df, fee_voucher_df]:
+        if df is not None and not df.empty and "브랜드" in df.columns:
+            projects.update(df["브랜드"].dropna().unique())
 
     result = {}
     for proj in sorted(projects, key=to_str):
         result[proj] = {
             "sales": sales_df[sales_df["브랜드"] == proj] if not sales_df.empty else pd.DataFrame(),
             "purchase": purchase_df[purchase_df["브랜드"] == proj] if not purchase_df.empty else pd.DataFrame(),
-            "voucher": voucher_df[voucher_df["브랜드"] == proj] if (voucher_df is not None and not voucher_df.empty) else pd.DataFrame()
+            "sales_voucher": sales_voucher_df[sales_voucher_df["브랜드"] == proj] if (sales_voucher_df is not None and not sales_voucher_df.empty) else pd.DataFrame(),
+            "cost_voucher": cost_voucher_df[cost_voucher_df["브랜드"] == proj] if (cost_voucher_df is not None and not cost_voucher_df.empty) else pd.DataFrame(),
+            "fee_voucher": fee_voucher_df[fee_voucher_df["브랜드"] == proj] if (fee_voucher_df is not None and not fee_voucher_df.empty) else pd.DataFrame()
         }
 
     return result
@@ -758,10 +873,6 @@ def process_ezadmin_to_ecount(data_dir: str = DATA_DIR,
     sales_merged = pd.concat(sales_all, ignore_index=True) if sales_all else pd.DataFrame()
     purchase_merged = pd.concat(purchase_all, ignore_index=True) if purchase_all else pd.DataFrame()
 
-    # 매입전표 생성
-    voucher_df = build_voucher_from_sales(sales_merged, rate_book) if not sales_merged.empty else pd.DataFrame()
-    print(f"[INFO] 매입전표 생성: {len(voucher_df)}건")
-
     # 데이터 검증 및 정제 (수동발주 케이스)
     pending_mappings = []
     if validate_sellers and not sales_merged.empty:
@@ -773,18 +884,33 @@ def process_ezadmin_to_ecount(data_dir: str = DATA_DIR,
         if not purchase_merged.empty:
             purchase_merged, pending_mappings = validate_and_correct_sellers(purchase_merged, pending_mappings)
 
+    # 전표 생성
+    sales_voucher_df = build_sales_voucher(sales_merged) if not sales_merged.empty else pd.DataFrame()
+    cost_voucher_df = build_cost_voucher(purchase_merged) if not purchase_merged.empty else pd.DataFrame()
+    fee_voucher_df = build_voucher_from_sales(sales_merged, rate_book) if not sales_merged.empty else pd.DataFrame()
+
+    print(f"[INFO] 매출전표 생성: {len(sales_voucher_df)}건")
+    print(f"[INFO] 원가매입전표 생성: {len(cost_voucher_df)}건")
+    print(f"[INFO] 운반비/수수료 매입전표 생성: {len(fee_voucher_df)}건")
+
     # 프로젝트별 분리
-    by_project = split_by_project(sales_merged, purchase_merged, voucher_df)
+    by_project = split_by_project(sales_merged, purchase_merged, sales_voucher_df, cost_voucher_df, fee_voucher_df)
 
     total_sales = len(sales_merged)
     total_purchase = len(purchase_merged)
-    total_vouchers = len(voucher_df)
-    print(f"\n✅ 처리 완료: 판매 {total_sales}건, 매입 {total_purchase}건, 매입전표 {total_vouchers}건")
+    total_sales_vouchers = len(sales_voucher_df)
+    total_cost_vouchers = len(cost_voucher_df)
+    total_fee_vouchers = len(fee_voucher_df)
+    print(f"\n✅ 처리 완료: 판매 {total_sales}건, 매입 {total_purchase}건")
+    print(f"   전표: 매출 {total_sales_vouchers}건, 원가매입 {total_cost_vouchers}건, 운반비/수수료 {total_fee_vouchers}건")
 
     return {
         "sales": sales_merged,
         "purchase": purchase_merged,
-        "voucher": voucher_df,
+        "sales_voucher": sales_voucher_df,
+        "cost_voucher": cost_voucher_df,
+        "fee_voucher": fee_voucher_df,
+        "voucher": fee_voucher_df,  # 하위 호환성을 위해 유지
         "by_project": by_project
     }, pending_mappings
 
@@ -800,9 +926,11 @@ def save_to_excel(result: Dict[str, any], output_file: str = "output_ecount.xlsx
     """
     sales_df = result.get("sales", pd.DataFrame())
     purchase_df = result.get("purchase", pd.DataFrame())
-    voucher_df = result.get("voucher", pd.DataFrame())
+    sales_voucher_df = result.get("sales_voucher", pd.DataFrame())
+    cost_voucher_df = result.get("cost_voucher", pd.DataFrame())
+    fee_voucher_df = result.get("fee_voucher", pd.DataFrame())
 
-    if sales_df.empty and purchase_df.empty and voucher_df.empty:
+    if sales_df.empty and purchase_df.empty and sales_voucher_df.empty and cost_voucher_df.empty and fee_voucher_df.empty:
         print("❌ 저장할 데이터가 없습니다.")
         return
 
@@ -812,25 +940,40 @@ def save_to_excel(result: Dict[str, any], output_file: str = "output_ecount.xlsx
             sales_df.to_excel(writer, index=False, sheet_name="판매")
         if not purchase_df.empty:
             purchase_df.to_excel(writer, index=False, sheet_name="매입")
-        if not voucher_df.empty:
-            voucher_df.to_excel(writer, index=False, sheet_name="매입전표")
+        if not sales_voucher_df.empty:
+            sales_voucher_df.to_excel(writer, index=False, sheet_name="매출전표")
+        if not cost_voucher_df.empty:
+            cost_voucher_df.to_excel(writer, index=False, sheet_name="원가매입전표")
+        if not fee_voucher_df.empty:
+            fee_voucher_df.to_excel(writer, index=False, sheet_name="운반비수수료전표")
 
-    print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건, 매입전표 {len(voucher_df)}건 저장 완료")
+    print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건")
+    print(f"   전표: 매출 {len(sales_voucher_df)}건, 원가매입 {len(cost_voucher_df)}건, 운반비/수수료 {len(fee_voucher_df)}건 저장 완료")
 
     # 프로젝트별 파일 저장
     by_project = result.get("by_project", {})
     for proj, data in by_project.items():
-        if data["sales"].empty and data["purchase"].empty and data["voucher"].empty:
+        sales_empty = data.get("sales", pd.DataFrame()).empty
+        purchase_empty = data.get("purchase", pd.DataFrame()).empty
+        sales_voucher_empty = data.get("sales_voucher", pd.DataFrame()).empty
+        cost_voucher_empty = data.get("cost_voucher", pd.DataFrame()).empty
+        fee_voucher_empty = data.get("fee_voucher", pd.DataFrame()).empty
+
+        if sales_empty and purchase_empty and sales_voucher_empty and cost_voucher_empty and fee_voucher_empty:
             continue
 
         fname = f"output_ecount_{safe_filename(proj)}.xlsx"
         with pd.ExcelWriter(fname, engine="openpyxl") as writer:
-            if not data["sales"].empty:
+            if not sales_empty:
                 data["sales"].to_excel(writer, index=False, sheet_name="판매")
-            if not data["purchase"].empty:
+            if not purchase_empty:
                 data["purchase"].to_excel(writer, index=False, sheet_name="매입")
-            if not data["voucher"].empty:
-                data["voucher"].to_excel(writer, index=False, sheet_name="매입전표")
+            if not sales_voucher_empty:
+                data["sales_voucher"].to_excel(writer, index=False, sheet_name="매출전표")
+            if not cost_voucher_empty:
+                data["cost_voucher"].to_excel(writer, index=False, sheet_name="원가매입전표")
+            if not fee_voucher_empty:
+                data["fee_voucher"].to_excel(writer, index=False, sheet_name="운반비수수료전표")
 
         print(f"✅ 프로젝트별 저장 완료: {proj} → {fname}")
 

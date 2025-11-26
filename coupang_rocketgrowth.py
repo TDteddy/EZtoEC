@@ -439,6 +439,95 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
     return sales_df, purchase_df
 
 
+def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    판매 데이터로부터 매출전표 생성
+
+    Args:
+        sales_df: 판매 DataFrame
+
+    Returns:
+        매출전표 DataFrame
+    """
+    if sales_df.empty:
+        return pd.DataFrame()
+
+    # (일자, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
+    grouped = sales_df.groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+        "공급가액": "sum",
+        "부가세": "sum"
+    })
+
+    vouchers = []
+    for _, row in grouped.iterrows():
+        vouchers.append({
+            "전표일자": row["일자"],
+            "브랜드": str(row["브랜드"]),
+            "판매채널": str(row["판매채널"]),
+            "거래처코드": "",
+            "거래처명": str(row["거래처명"]),
+            "부가세유형": "",
+            "공급가액": int(row["공급가액"]),
+            "외화금액": "",
+            "환율": "",
+            "부가세": int(row["부가세"]),
+            "적요": "",
+            "매출계정코드": "4019",
+            "입금계좌": ""
+        })
+
+    voucher_df = pd.DataFrame(vouchers)
+    print(f"✅ 매출전표 {len(voucher_df)}건 생성 완료")
+
+    return voucher_df
+
+
+def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    매입 데이터로부터 원가매입전표 생성
+
+    Args:
+        purchase_df: 매입 DataFrame
+
+    Returns:
+        원가매입전표 DataFrame
+    """
+    if purchase_df.empty:
+        return pd.DataFrame()
+
+    # (일자, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
+    grouped = purchase_df.groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+        "공급가액": "sum",
+        "부가세": "sum"
+    })
+
+    vouchers = []
+    for _, row in grouped.iterrows():
+        vouchers.append({
+            "전표일자": row["일자"],
+            "브랜드": str(row["브랜드"]),
+            "판매채널": str(row["판매채널"]),
+            "거래처코드": "",
+            "거래처명": str(row["거래처명"]),
+            "부가세유형": "",
+            "신용카드/승인번호": "",
+            "공급가액": int(row["공급가액"]),
+            "외화금액": "",
+            "환율": "",
+            "부가세": int(row["부가세"]),
+            "적요": "",
+            "매입계정코드": "4519",
+            "돈나간계좌번호": "",
+            "채무번호": "",
+            "만기일자": ""
+        })
+
+    voucher_df = pd.DataFrame(vouchers)
+    print(f"✅ 원가매입전표 {len(voucher_df)}건 생성 완료")
+
+    return voucher_df
+
+
 def build_voucher_from_sales(sales_df: pd.DataFrame, rates_yaml: str = RATES_YAML) -> pd.DataFrame:
     """
     판매 데이터로부터 매입전표(수수료, 운송료) 생성
@@ -562,17 +651,20 @@ def load_rate_book_from_yaml(path: str) -> dict:
 
 
 def save_to_excel(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
-                  voucher_df: pd.DataFrame, output_file: str = "output_coupang_rocketgrowth.xlsx"):
+                  sales_voucher_df: pd.DataFrame, cost_voucher_df: pd.DataFrame,
+                  fee_voucher_df: pd.DataFrame, output_file: str = "output_coupang_rocketgrowth.xlsx"):
     """
     변환 결과를 엑셀 파일로 저장
 
     Args:
         sales_df: 판매 DataFrame
         purchase_df: 매입 DataFrame
-        voucher_df: 매입전표 DataFrame
+        sales_voucher_df: 매출전표 DataFrame
+        cost_voucher_df: 원가매입전표 DataFrame
+        fee_voucher_df: 운반비/수수료 매입전표 DataFrame
         output_file: 저장할 파일명
     """
-    if sales_df.empty and purchase_df.empty and voucher_df.empty:
+    if sales_df.empty and purchase_df.empty and sales_voucher_df.empty and cost_voucher_df.empty and fee_voucher_df.empty:
         print("❌ 저장할 데이터가 없습니다.")
         return
 
@@ -581,10 +673,15 @@ def save_to_excel(sales_df: pd.DataFrame, purchase_df: pd.DataFrame,
             sales_df.to_excel(writer, sheet_name="판매", index=False)
         if not purchase_df.empty:
             purchase_df.to_excel(writer, sheet_name="매입", index=False)
-        if not voucher_df.empty:
-            voucher_df.to_excel(writer, sheet_name="매입전표", index=False)
+        if not sales_voucher_df.empty:
+            sales_voucher_df.to_excel(writer, sheet_name="매출전표", index=False)
+        if not cost_voucher_df.empty:
+            cost_voucher_df.to_excel(writer, sheet_name="원가매입전표", index=False)
+        if not fee_voucher_df.empty:
+            fee_voucher_df.to_excel(writer, sheet_name="운반비수수료전표", index=False)
 
-    print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건, 매입전표 {len(voucher_df)}건 저장 완료")
+    print(f"✅ {output_file}: 판매 {len(sales_df)}건, 매입 {len(purchase_df)}건")
+    print(f"   전표: 매출 {len(sales_voucher_df)}건, 원가매입 {len(cost_voucher_df)}건, 운반비/수수료 {len(fee_voucher_df)}건 저장 완료")
 
 
 def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict[str, Any]:
@@ -731,17 +828,23 @@ def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict
     # 3. 이카운트 형식 변환
     print(f"\n[3단계] 이카운트 형식 변환 중...")
     sales_df, purchase_df = convert_to_ecount_format(df_mapped, target_date)
-    voucher_df = build_voucher_from_sales(sales_df)
+
+    # 전표 생성
+    sales_voucher_df = build_sales_voucher(sales_df)
+    cost_voucher_df = build_cost_voucher(purchase_df)
+    fee_voucher_df = build_voucher_from_sales(sales_df)
 
     result["conversion"] = {
         "success": True,
         "sales_count": len(sales_df),
         "purchase_count": len(purchase_df),
-        "voucher_count": len(voucher_df)
+        "sales_voucher_count": len(sales_voucher_df),
+        "cost_voucher_count": len(cost_voucher_df),
+        "fee_voucher_count": len(fee_voucher_df)
     }
 
     # 4. 엑셀 저장
-    save_to_excel(sales_df, purchase_df, voucher_df)
+    save_to_excel(sales_df, purchase_df, sales_voucher_df, cost_voucher_df, fee_voucher_df)
 
     print("\n" + "=" * 80)
     print("처리 완료")
@@ -750,7 +853,10 @@ def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict
     return {
         "sales": sales_df,
         "purchase": purchase_df,
-        "voucher": voucher_df,
+        "sales_voucher": sales_voucher_df,
+        "cost_voucher": cost_voucher_df,
+        "fee_voucher": fee_voucher_df,
+        "voucher": fee_voucher_df,  # 하위 호환성을 위해 유지
         "result": result
     }
 

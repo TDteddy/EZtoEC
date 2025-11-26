@@ -1651,9 +1651,10 @@ if __name__ == "__main__":
     print("  3) 누락건 중간배치부터 업로드")
     print("  4) 이카운트 로그인 테스트")
     print("  5) 세트상품 관리")
+    print("  6) 엑셀 아웃풋만 생성 (업로드 안함)")
     print()
 
-    choice = input("선택 (1-5): ").strip()
+    choice = input("선택 (1-6): ").strip()
 
     if choice == "3":
         # 배치 재업로드 모드
@@ -1935,6 +1936,75 @@ if __name__ == "__main__":
 
         input("\n엔터키를 눌러 종료하세요...")
 
+    elif choice == "6":
+        # 엑셀 아웃풋만 생성 (업로드 안함)
+        print("=" * 80)
+        print("엑셀 아웃풋 생성 (업로드 안함)")
+        print("=" * 80)
+        print("\n데이터 소스를 선택하세요:")
+        print("  1) 이지어드민")
+        print("  2) 쿠팡 로켓그로스")
+
+        source_choice = input("\n선택 (1 또는 2): ").strip()
+
+        if source_choice == "1":
+            # 이지어드민 엑셀만 생성
+            try:
+                from excel_converter import process_ezadmin_to_ecount, save_to_excel
+
+                print("\n" + "=" * 80)
+                print("이지어드민 데이터 처리 중...")
+                print("=" * 80)
+
+                excel_result, pending_mappings = process_ezadmin_to_ecount()
+
+                if pending_mappings:
+                    print("\n⚠️  수동 매핑이 필요한 판매처가 있습니다.")
+                    print("   웹 에디터를 통해 매핑을 완료한 후 다시 실행하세요.")
+                else:
+                    # 엑셀 저장
+                    save_to_excel(excel_result)
+                    print("\n✅ 엑셀 파일 생성 완료!")
+                    print("   업로드는 하지 않았습니다.")
+
+            except Exception as e:
+                print(f"\n❌ 처리 실패: {e}")
+                import traceback
+                traceback.print_exc()
+
+        elif source_choice == "2":
+            # 쿠팡 엑셀만 생성
+            try:
+                from coupang_rocketgrowth import process_coupang_rocketgrowth
+
+                print("\n날짜를 입력하세요 (YYYY-MM-DD):")
+                target_date = input().strip()
+
+                if not target_date:
+                    print("❌ 날짜를 입력하지 않았습니다.")
+                else:
+                    print("\n" + "=" * 80)
+                    print(f"쿠팡 로켓그로스 데이터 처리 중: {target_date}")
+                    print("=" * 80)
+
+                    result = process_coupang_rocketgrowth(target_date)
+
+                    if result["result"]["conversion"]["success"]:
+                        print("\n✅ 엑셀 파일 생성 완료!")
+                        print("   업로드는 하지 않았습니다.")
+                    else:
+                        print("\n⚠️  데이터 처리 중 문제가 발생했습니다.")
+
+            except Exception as e:
+                print(f"\n❌ 처리 실패: {e}")
+                import traceback
+                traceback.print_exc()
+
+        else:
+            print("\n❌ 잘못된 선택입니다.")
+
+        input("\n엔터키를 눌러 종료하세요...")
+
     else:
-        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5 중 하나를 선택하세요.")
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5, 6 중 하나를 선택하세요.")
         input("\n엔터키를 눌러 종료하세요...")
