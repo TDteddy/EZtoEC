@@ -1652,9 +1652,10 @@ if __name__ == "__main__":
     print("  4) 이카운트 로그인 테스트")
     print("  5) 세트상품 관리")
     print("  6) 엑셀 아웃풋만 생성 (업로드 안함)")
+    print("  7) 잘못 분류된 세트상품 매핑 수정")
     print()
 
-    choice = input("선택 (1-6): ").strip()
+    choice = input("선택 (1-7): ").strip()
 
     if choice == "3":
         # 배치 재업로드 모드
@@ -2005,6 +2006,52 @@ if __name__ == "__main__":
 
         input("\n엔터키를 눌러 종료하세요...")
 
+    elif choice == "7":
+        # 잘못 분류된 세트상품 매핑 수정
+        print("=" * 80)
+        print("잘못 분류된 세트상품 매핑 수정")
+        print("=" * 80)
+        print("\n이 기능은 다음 작업을 수행합니다:")
+        print("  1. coupang_product_mapping 테이블에서 is_set_product=0인 매핑 조회")
+        print("  2. 해당 매핑의 standard_product_name이 set_products 테이블에 있는지 확인")
+        print("  3. 세트상품인데 잘못 분류된 경우 is_set_product=1로 수정")
+        print()
+
+        # 사용자 확인
+        response = input("계속하시겠습니까? (y/N): ").strip().lower()
+        if response not in ['y', 'yes']:
+            print("\n❌ 취소되었습니다.")
+        else:
+            try:
+                from coupang_product_mapping import CoupangProductMappingDB
+
+                print("\n" + "=" * 80)
+                print("수정 시작")
+                print("=" * 80)
+
+                with CoupangProductMappingDB() as db:
+                    fixed_count = db.fix_misclassified_set_products()
+
+                print("\n" + "=" * 80)
+                print("작업 완료")
+                print("=" * 80)
+
+                if fixed_count > 0:
+                    print(f"\n✅ {fixed_count}건의 매핑을 세트상품으로 수정했습니다.")
+                    print("\n다음 단계:")
+                    print("  1. 수정된 매핑을 확인하세요:")
+                    print("     SELECT * FROM coupang_product_mapping WHERE is_set_product = 1;")
+                    print("  2. 다음번 쿠팡 데이터 처리 시 세트상품이 올바르게 분해됩니다.")
+                else:
+                    print("\n✅ 잘못 분류된 매핑이 없습니다. DB가 정상 상태입니다.")
+
+            except Exception as e:
+                print(f"\n❌ 처리 실패: {e}")
+                import traceback
+                traceback.print_exc()
+
+        input("\n엔터키를 눌러 종료하세요...")
+
     else:
-        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5, 6 중 하나를 선택하세요.")
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5, 6, 7 중 하나를 선택하세요.")
         input("\n엔터키를 눌러 종료하세요...")
