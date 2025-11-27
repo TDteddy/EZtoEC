@@ -441,7 +441,7 @@ def convert_to_ecount_format(df: pd.DataFrame, target_date: str) -> Tuple[pd.Dat
 
 def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
     """
-    판매 데이터로부터 매출전표 생성
+    판매 데이터로부터 매출전표 생성 (월별 합산)
 
     Args:
         sales_df: 판매 DataFrame
@@ -452,8 +452,13 @@ def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
     if sales_df.empty:
         return pd.DataFrame()
 
-    # (일자, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
-    grouped = sales_df.groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+    # 월 추출 (YYYY-MM 형식)
+    temp_df = sales_df.copy()
+    temp_df["월"] = pd.to_datetime(temp_df["일자"]).dt.to_period('M')
+
+    # (월, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
+    grouped = temp_df.groupby(["월", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+        "일자": "max",  # 해당 월의 마지막 날짜
         "공급가액": "sum",
         "부가세": "sum"
     })
@@ -477,14 +482,14 @@ def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
         })
 
     voucher_df = pd.DataFrame(vouchers)
-    print(f"✅ 매출전표 {len(voucher_df)}건 생성 완료")
+    print(f"✅ 매출전표 {len(voucher_df)}건 생성 완료 (월별 합산)")
 
     return voucher_df
 
 
 def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
     """
-    매입 데이터로부터 원가매입전표 생성
+    매입 데이터로부터 원가매입전표 생성 (월별 합산)
 
     Args:
         purchase_df: 매입 DataFrame
@@ -495,8 +500,13 @@ def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
     if purchase_df.empty:
         return pd.DataFrame()
 
-    # (일자, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
-    grouped = purchase_df.groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+    # 월 추출 (YYYY-MM 형식)
+    temp_df = purchase_df.copy()
+    temp_df["월"] = pd.to_datetime(temp_df["일자"]).dt.to_period('M')
+
+    # (월, 브랜드, 판매채널, 거래처명) 기준으로 그룹화하여 공급가액과 부가세 합산
+    grouped = temp_df.groupby(["월", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False).agg({
+        "일자": "max",  # 해당 월의 마지막 날짜
         "공급가액": "sum",
         "부가세": "sum"
     })
@@ -523,7 +533,7 @@ def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
         })
 
     voucher_df = pd.DataFrame(vouchers)
-    print(f"✅ 원가매입전표 {len(voucher_df)}건 생성 완료")
+    print(f"✅ 원가매입전표 {len(voucher_df)}건 생성 완료 (월별 합산)")
 
     return voucher_df
 

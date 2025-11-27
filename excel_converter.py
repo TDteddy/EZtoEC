@@ -605,7 +605,7 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 # ===== 매출전표 생성 =====
 def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
     """
-    sales_df를 (일자, 브랜드, 판매채널, 거래처명)으로 묶고,
+    sales_df를 (월, 브랜드, 판매채널, 거래처명)으로 묶고,
     공급가액과 부가세를 합산하여 매출전표 생성
 
     Args:
@@ -622,11 +622,20 @@ def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
         if c not in sales_df.columns:
             raise KeyError(f"매출전표 생성에 필요한 컬럼이 없습니다: {c}")
 
-    # (일자, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    # 월 추출 (YYYY-MM 형식)
+    temp_df = sales_df[need_cols].copy()
+    temp_df["월"] = pd.to_datetime(temp_df["일자"]).dt.to_period('M')
+
+    # (월, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    # 전표일자는 해당 월의 마지막 일자 사용
     base = (
-        sales_df[need_cols]
-        .groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
-        .agg({"공급가액": "sum", "부가세": "sum"})
+        temp_df
+        .groupby(["월", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
+        .agg({
+            "일자": "max",  # 해당 월의 마지막 날짜
+            "공급가액": "sum",
+            "부가세": "sum"
+        })
     )
 
     rows = []
@@ -657,7 +666,7 @@ def build_sales_voucher(sales_df: pd.DataFrame) -> pd.DataFrame:
 # ===== 원가매입전표 생성 =====
 def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
     """
-    purchase_df를 (일자, 브랜드, 판매채널, 거래처명)으로 묶고,
+    purchase_df를 (월, 브랜드, 판매채널, 거래처명)으로 묶고,
     공급가액과 부가세를 합산하여 원가매입전표 생성
 
     Args:
@@ -674,11 +683,20 @@ def build_cost_voucher(purchase_df: pd.DataFrame) -> pd.DataFrame:
         if c not in purchase_df.columns:
             raise KeyError(f"원가매입전표 생성에 필요한 컬럼이 없습니다: {c}")
 
-    # (일자, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    # 월 추출 (YYYY-MM 형식)
+    temp_df = purchase_df[need_cols].copy()
+    temp_df["월"] = pd.to_datetime(temp_df["일자"]).dt.to_period('M')
+
+    # (월, 브랜드, 판매채널, 거래처명)으로 그룹핑하여 공급가액과 부가세 합산
+    # 전표일자는 해당 월의 마지막 일자 사용
     base = (
-        purchase_df[need_cols]
-        .groupby(["일자", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
-        .agg({"공급가액": "sum", "부가세": "sum"})
+        temp_df
+        .groupby(["월", "브랜드", "판매채널", "거래처명"], dropna=False, as_index=False)
+        .agg({
+            "일자": "max",  # 해당 월의 마지막 날짜
+            "공급가액": "sum",
+            "부가세": "sum"
+        })
     )
 
     rows = []
