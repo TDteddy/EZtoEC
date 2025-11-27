@@ -1976,25 +1976,51 @@ if __name__ == "__main__":
         elif source_choice == "2":
             # 쿠팡 엑셀만 생성
             try:
-                from coupang_rocketgrowth import process_coupang_rocketgrowth
+                from coupang_rocketgrowth import process_coupang_rocketgrowth, process_coupang_date_range
 
-                print("\n날짜를 입력하세요 (YYYY-MM-DD):")
-                target_date = input().strip()
+                print("\n날짜 입력 방법:")
+                print("  1) 단일 날짜: YYYY-MM-DD")
+                print("  2) 날짜 범위: YYYY-MM-DD YYYY-MM-DD (시작 종료)")
+                date_input = input("\n처리할 날짜를 입력하세요: ").strip()
 
-                if not target_date:
+                if not date_input:
                     print("❌ 날짜를 입력하지 않았습니다.")
                 else:
-                    print("\n" + "=" * 80)
-                    print(f"쿠팡 로켓그로스 데이터 처리 중: {target_date}")
-                    print("=" * 80)
+                    # 공백으로 분리
+                    dates = date_input.split()
+                    if len(dates) == 1:
+                        # 단일 날짜
+                        target_date = dates[0]
+                        print("\n" + "=" * 80)
+                        print(f"쿠팡 로켓그로스 데이터 처리 중: {target_date}")
+                        print("=" * 80)
 
-                    result = process_coupang_rocketgrowth(target_date)
+                        result = process_coupang_rocketgrowth(target_date)
 
-                    if result["result"]["conversion"]["success"]:
-                        print("\n✅ 엑셀 파일 생성 완료!")
-                        print("   업로드는 하지 않았습니다.")
+                        if result and result.get("result") and result["result"].get("conversion", {}).get("success"):
+                            print("\n✅ 엑셀 파일 생성 완료!")
+                            print("   업로드는 하지 않았습니다.")
+                        else:
+                            print("\n⚠️  데이터 처리 중 문제가 발생했습니다.")
+
+                    elif len(dates) == 2:
+                        # 날짜 범위
+                        start_date = dates[0]
+                        end_date = dates[1]
+                        print("\n" + "=" * 80)
+                        print(f"쿠팡 로켓그로스 데이터 처리 중: {start_date} ~ {end_date}")
+                        print("=" * 80)
+
+                        range_result = process_coupang_date_range(start_date, end_date)
+
+                        if range_result.get("success"):
+                            print(f"\n✅ 엑셀 파일 생성 완료!")
+                            print(f"   처리된 날짜: {len(range_result.get('dates_processed', []))}일")
+                            print("   업로드는 하지 않았습니다.")
+                        else:
+                            print("\n⚠️  데이터 처리 중 문제가 발생했습니다.")
                     else:
-                        print("\n⚠️  데이터 처리 중 문제가 발생했습니다.")
+                        print("❌ 올바른 날짜 형식이 아닙니다.")
 
             except Exception as e:
                 print(f"\n❌ 처리 실패: {e}")
