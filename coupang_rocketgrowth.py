@@ -131,7 +131,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
             if mapping:
                 # 매핑 존재
                 cost_price = float(mapping.get("cost_price", 0))
-                is_set = mapping.get("is_set_product", False)
+                is_set = bool(mapping.get("is_set_product", False))
                 set_marker = " [세트]" if is_set else ""
 
                 print(f"  ✅ [{option_name}] → {mapping['standard_product_name']}{set_marker} "
@@ -156,7 +156,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
                 if gpt_result and gpt_result.get("confidence", 0) >= 0.7:
                     # 신뢰도 높은 경우 자동 저장
-                    is_set = gpt_result.get("is_set_product", False)
+                    is_set = bool(gpt_result.get("is_set_product", False))
                     set_marker = " [세트]" if is_set else ""
                     print(f"  ✅ [{option_name}] → {gpt_result['standard_product_name']}{set_marker} "
                           f"(x{gpt_result['quantity_multiplier']}, {gpt_result['brand']}) "
@@ -922,7 +922,9 @@ def process_coupang_date_range(start_date: str, end_date: str, max_retries: int 
     # 각 날짜별 결과 저장
     all_sales = []
     all_purchase = []
-    all_voucher = []
+    all_sales_voucher = []
+    all_cost_voucher = []
+    all_fee_voucher = []
     dates_processed = []
     dates_failed = []
 
@@ -939,14 +941,20 @@ def process_coupang_date_range(start_date: str, end_date: str, max_retries: int 
             if result["result"].get("conversion", {}).get("success", False):
                 sales_df = result["sales"]
                 purchase_df = result["purchase"]
-                voucher_df = result["voucher"]
+                sales_voucher_df = result["sales_voucher"]
+                cost_voucher_df = result["cost_voucher"]
+                fee_voucher_df = result["fee_voucher"]
 
                 if not sales_df.empty:
                     all_sales.append(sales_df)
                 if not purchase_df.empty:
                     all_purchase.append(purchase_df)
-                if not voucher_df.empty:
-                    all_voucher.append(voucher_df)
+                if not sales_voucher_df.empty:
+                    all_sales_voucher.append(sales_voucher_df)
+                if not cost_voucher_df.empty:
+                    all_cost_voucher.append(cost_voucher_df)
+                if not fee_voucher_df.empty:
+                    all_fee_voucher.append(fee_voucher_df)
 
                 dates_processed.append(target_date)
                 print(f"✅ {target_date} 처리 완료")
@@ -967,11 +975,13 @@ def process_coupang_date_range(start_date: str, end_date: str, max_retries: int 
 
     merged_sales = pd.concat(all_sales, ignore_index=True) if all_sales else pd.DataFrame()
     merged_purchase = pd.concat(all_purchase, ignore_index=True) if all_purchase else pd.DataFrame()
-    merged_voucher = pd.concat(all_voucher, ignore_index=True) if all_voucher else pd.DataFrame()
+    merged_sales_voucher = pd.concat(all_sales_voucher, ignore_index=True) if all_sales_voucher else pd.DataFrame()
+    merged_cost_voucher = pd.concat(all_cost_voucher, ignore_index=True) if all_cost_voucher else pd.DataFrame()
+    merged_fee_voucher = pd.concat(all_fee_voucher, ignore_index=True) if all_fee_voucher else pd.DataFrame()
 
     # 최종 결과 저장
     output_filename = f"output_coupang_rocketgrowth_{start_date}_to_{end_date}.xlsx"
-    save_to_excel(merged_sales, merged_purchase, merged_voucher, output_filename)
+    save_to_excel(merged_sales, merged_purchase, merged_sales_voucher, merged_cost_voucher, merged_fee_voucher, output_filename)
 
     # 결과 요약
     print("\n" + "=" * 80)
@@ -987,7 +997,7 @@ def process_coupang_date_range(start_date: str, end_date: str, max_retries: int 
     print(f"\n📊 병합된 데이터:")
     print(f"   판매: {len(merged_sales)}건")
     print(f"   매입: {len(merged_purchase)}건")
-    print(f"   매입전표: {len(merged_voucher)}건")
+    print(f"   전표: 매출 {len(merged_sales_voucher)}건, 원가매입 {len(merged_cost_voucher)}건, 운반비/수수료 {len(merged_fee_voucher)}건")
     print(f"\n💾 저장 파일: {output_filename}")
     print("=" * 80)
 
@@ -997,7 +1007,10 @@ def process_coupang_date_range(start_date: str, end_date: str, max_retries: int 
         "dates_failed": dates_failed,
         "sales": merged_sales,
         "purchase": merged_purchase,
-        "voucher": merged_voucher,
+        "sales_voucher": merged_sales_voucher,
+        "cost_voucher": merged_cost_voucher,
+        "fee_voucher": merged_fee_voucher,
+        "voucher": merged_fee_voucher,  # 하위 호환성을 위해 유지
         "output_file": output_filename
     }
 
