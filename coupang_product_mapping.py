@@ -799,6 +799,62 @@ class CoupangProductMappingDB:
             print(f"❌ 매핑 조회 실패: {e}")
             return None
 
+    # ===== 데이터 정리 =====
+
+    def fix_misclassified_set_products(self) -> int:
+        """
+        잘못 분류된 세트상품 매핑을 일괄 수정
+
+        세트상품 DB에 있는데 is_set_product=0으로 잘못 분류된 매핑을 찾아서 수정
+
+        Returns:
+            수정된 매핑 개수
+        """
+        try:
+            # 1. 잘못 분류된 매핑 찾기
+            query = """
+                SELECT m.coupang_option_name, m.standard_product_name
+                FROM coupang_product_mapping m
+                INNER JOIN set_products s ON m.standard_product_name = s.set_name
+                WHERE COALESCE(m.is_set_product, 0) = 0
+            """
+            self.cursor.execute(query)
+            misclassified = self.cursor.fetchall()
+
+            if not misclassified:
+                print("✅ 잘못 분류된 세트상품 매핑이 없습니다.")
+                return 0
+
+            print(f"\n⚠️  잘못 분류된 세트상품 매핑 발견: {len(misclassified)}건")
+            print("-" * 80)
+
+            # 2. 각 매핑 수정
+            fixed_count = 0
+            for row in misclassified:
+                coupang_name = row['coupang_option_name']
+                set_name = row['standard_product_name']
+
+                print(f"  🔧 [{coupang_name}] → {set_name} (세트상품으로 수정)")
+
+                # is_set_product를 1로 업데이트
+                update_query = """
+                    UPDATE coupang_product_mapping
+                    SET is_set_product = 1
+                    WHERE coupang_option_name = %s
+                """
+                self.cursor.execute(update_query, (coupang_name,))
+                fixed_count += 1
+
+            self.conn.commit()
+            print("-" * 80)
+            print(f"✅ {fixed_count}건의 매핑을 세트상품으로 수정했습니다.")
+            return fixed_count
+
+        except Error as e:
+            print(f"❌ 세트상품 매핑 수정 실패: {e}")
+            self.conn.rollback()
+            return 0
+
     # ===== GPT 자동 매칭 =====
 
     def match_product_with_gpt(self, coupang_option_name: str) -> Optional[Dict]:
