@@ -252,6 +252,8 @@ def process_coupang_difference_report(
         # 원가 계산
         cost_price = row["cost_price"]
         total_cost = int(cost_price * actual_quantity)
+        cost_supply_amt = int(total_cost / 1.1)
+        cost_vat_amt = total_cost - cost_supply_amt
 
         # 판매 데이터
         sales_rows.append({
@@ -276,8 +278,8 @@ def process_coupang_difference_report(
             "거래처명": "로켓그로스",
             "상품명": row["standard_product_name"],
             "수량": actual_quantity,
-            "공급가액": total_cost,
-            "부가세": 0,
+            "공급가액": cost_supply_amt,
+            "부가세": cost_vat_amt,
             "is_set_product": row["is_set_product"],
             "set_items": row["set_items"]
         })
