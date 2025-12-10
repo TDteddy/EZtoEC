@@ -74,6 +74,7 @@ def process_coupang_difference_report(
     print(f"\n[2단계] 상품 매핑 처리 중...")
 
     db = CoupangProductMappingDB()
+    db.connect()
 
     # 필요한 컬럼 추가
     df["standard_product_name"] = ""
@@ -201,6 +202,7 @@ def process_coupang_difference_report(
 
                 if user_input == 'q':
                     print("❌ 사용자가 작업을 중단했습니다.")
+                    db.close()
                     result["validation"] = {"success": False, "error": "User cancelled"}
                     return {
                         "success": False,
@@ -208,6 +210,7 @@ def process_coupang_difference_report(
                     }
             else:
                 print(f"\n❌ 최대 재시도 횟수({max_retries}회)를 초과했습니다.")
+                db.close()
                 result["validation"] = {"success": False, "error": "Max retries exceeded"}
                 return {
                     "success": False,
@@ -218,6 +221,7 @@ def process_coupang_difference_report(
             break
 
     result["validation"] = {"success": True}
+    db.close()
 
     # 3. 데이터 변환
     print(f"\n[3단계] 차이 데이터 변환 중...")
