@@ -118,8 +118,30 @@ def process_coupang_difference_report(
                         df.at[idx, "set_items"] = mapping["items"]
                     continue
 
-            # DB_옵션명이 없거나 매핑이 없으면 월별보고서_옵션명으로 GPT 매핑 시도
+            # DB_옵션명이 없거나 매핑이 없으면 월별보고서_옵션명으로 시도
             if report_option_name:
+                # 먼저 DB에서 조회
+                mapping = db.get_mapping_with_set(report_option_name)
+
+                if mapping:
+                    # DB에 매핑이 있으면 사용
+                    cost_price = float(mapping.get("cost_price", 0))
+                    is_set = bool(mapping.get("is_set_product", False))
+                    set_marker = " [세트]" if is_set else ""
+
+                    print(f"  ✅ [보고서: {report_option_name}] → {mapping['standard_product_name']}{set_marker} "
+                          f"(x{mapping['quantity_multiplier']}, {mapping['brand']}, 원가: {cost_price:,.0f}원)")
+
+                    df.at[idx, "standard_product_name"] = mapping["standard_product_name"]
+                    df.at[idx, "brand"] = mapping["brand"]
+                    df.at[idx, "quantity_multiplier"] = mapping["quantity_multiplier"]
+                    df.at[idx, "cost_price"] = cost_price
+                    df.at[idx, "is_set_product"] = is_set
+                    if is_set and mapping.get("items"):
+                        df.at[idx, "set_items"] = mapping["items"]
+                    continue
+
+                # DB에 없으면 GPT 매핑 시도
                 print(f"  🤖 [보고서: {report_option_name}] GPT 자동 매칭 시도 중...")
 
                 gpt_result = db.match_product_with_gpt(report_option_name)
