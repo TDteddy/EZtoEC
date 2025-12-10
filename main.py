@@ -1653,9 +1653,10 @@ if __name__ == "__main__":
     print("  5) 세트상품 관리")
     print("  6) 엑셀 아웃풋만 생성 (업로드 안함)")
     print("  7) 잘못 분류된 세트상품 매핑 수정")
+    print("  8) 쿠팡 차이 보고서 전표 생성")
     print()
 
-    choice = input("선택 (1-7): ").strip()
+    choice = input("선택 (1-8): ").strip()
 
     if choice == "3":
         # 배치 재업로드 모드
@@ -2078,6 +2079,60 @@ if __name__ == "__main__":
 
         input("\n엔터키를 눌러 종료하세요...")
 
+    elif choice == "8":
+        # 쿠팡 차이 보고서 전표 생성
+        print("=" * 80)
+        print("쿠팡 차이 보고서 전표 생성")
+        print("=" * 80)
+
+        # 엑셀 파일 경로 입력
+        excel_file = input("\n차이 보고서 엑셀 파일 경로를 입력하세요: ").strip()
+
+        if not excel_file:
+            print("❌ 파일 경로를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
+            sys.exit(1)
+
+        # 날짜 입력
+        target_date = input("전표 날짜를 입력하세요 (YYYY-MM-DD, 예: 2025-10-31): ").strip()
+
+        if not target_date:
+            print("❌ 날짜를 입력하지 않았습니다.")
+            input("\n엔터키를 눌러 종료하세요...")
+            sys.exit(1)
+
+        # 날짜 형식 검증
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError:
+            print("❌ 잘못된 날짜 형식입니다. YYYY-MM-DD 형식으로 입력하세요.")
+            input("\n엔터키를 눌러 종료하세요...")
+            sys.exit(1)
+
+        # 차이 보고서 처리
+        try:
+            from coupang_difference_report import process_coupang_difference_report
+
+            result = process_coupang_difference_report(excel_file, target_date)
+
+            if result.get("success"):
+                print("\n" + "=" * 80)
+                print("✅ 차이 보고서 처리 완료!")
+                print("=" * 80)
+            else:
+                print("\n" + "=" * 80)
+                print("❌ 차이 보고서 처리 실패")
+                print("=" * 80)
+
+        except FileNotFoundError:
+            print(f"\n❌ 파일을 찾을 수 없습니다: {excel_file}")
+        except Exception as e:
+            print(f"\n❌ 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+
+        input("\n엔터키를 눌러 종료하세요...")
+
     else:
-        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5, 6, 7 중 하나를 선택하세요.")
+        print("\n❌ 잘못된 선택입니다. 1, 2, 3, 4, 5, 6, 7, 8 중 하나를 선택하세요.")
         input("\n엔터키를 눌러 종료하세요...")
