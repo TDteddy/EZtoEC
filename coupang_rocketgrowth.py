@@ -53,17 +53,17 @@ def fetch_coupang_sales_data(target_date: str) -> pd.DataFrame:
 
         print(f"✅ 쿠팡 판매 DB 연결: {SALES_DB_NAME}")
 
-        # 날짜 조회
+        # 날짜 조회 (환불 포함)
         query = """
         SELECT
             Date,
             ID_product_coupang_2p_at_sales_report_coupang_2p,
             ID_option_coupang_2p_at_sales_report_coupang_2p,
             Name_option_coupang_at_sales_report_coupang_2p,
-            Qty_sales_net_at_sales_report_coupang_2p,
+            Qty_sales_total_at_sales_report_coupang_2p,
             Sales_total_amount_at_sales_report_coupang_2p
         FROM sales_report_coupang_2p
-        WHERE Date = %s AND Qty_sales_net_at_sales_report_coupang_2p > 0
+        WHERE Date = %s
         ORDER BY ID_product_coupang_2p_at_sales_report_coupang_2p
         """
 
@@ -139,11 +139,11 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
                 # 모든 해당 행 업데이트
                 for idx in indices:
-                    qty_net = int(df.at[idx, "Qty_sales_net_at_sales_report_coupang_2p"] or 0)
+                    qty_total = int(df.at[idx, "Qty_sales_total_at_sales_report_coupang_2p"] or 0)
                     df.at[idx, "standard_product_name"] = mapping["standard_product_name"]
                     df.at[idx, "quantity_multiplier"] = mapping["quantity_multiplier"]
                     df.at[idx, "brand"] = mapping["brand"]
-                    df.at[idx, "actual_quantity"] = qty_net * mapping["quantity_multiplier"]
+                    df.at[idx, "actual_quantity"] = qty_total * mapping["quantity_multiplier"]
                     df.at[idx, "cost_price"] = cost_price
                     df.at[idx, "is_set_product"] = is_set
                     if is_set and mapping.get("items"):
@@ -177,11 +177,11 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
 
                     # 모든 해당 행 업데이트
                     for idx in indices:
-                        qty_net = int(df.at[idx, "Qty_sales_net_at_sales_report_coupang_2p"] or 0)
+                        qty_total = int(df.at[idx, "Qty_sales_total_at_sales_report_coupang_2p"] or 0)
                         df.at[idx, "standard_product_name"] = gpt_result["standard_product_name"]
                         df.at[idx, "quantity_multiplier"] = gpt_result["quantity_multiplier"]
                         df.at[idx, "brand"] = gpt_result["brand"]
-                        df.at[idx, "actual_quantity"] = qty_net * gpt_result["quantity_multiplier"]
+                        df.at[idx, "actual_quantity"] = qty_total * gpt_result["quantity_multiplier"]
                         df.at[idx, "cost_price"] = cost_price
                         df.at[idx, "is_set_product"] = is_set
                         if is_set and saved_mapping and saved_mapping.get("items"):
@@ -207,7 +207,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                         "sample_data": {
                             "date": str(row_data.get("Date", "")),
                             "product_id": str(row_data.get("ID_product_coupang_2p_at_sales_report_coupang_2p", "")),
-                            "qty": str(row_data.get("Qty_sales_net_at_sales_report_coupang_2p", "")),
+                            "qty": str(row_data.get("Qty_sales_total_at_sales_report_coupang_2p", "")),
                             "amount": str(row_data.get("Sales_total_amount_at_sales_report_coupang_2p", ""))
                         }
                     })
