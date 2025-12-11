@@ -784,11 +784,11 @@ class CoupangProductMappingDB:
             if row.get('is_set_product'):
                 set_product = self.get_set_product_by_name(row['standard_product_name'])
                 if set_product:
-                    row['items'] = set_product['items']
+                    row['items'] = set_product['set_items']
                     # 세트상품의 총 원가 계산
                     total_cost = sum(
                         float(item.get('cost_price', 0)) * item.get('quantity', 1)
-                        for item in set_product['items']
+                        for item in set_product['set_items']
                     )
                     row['cost_price'] = total_cost
                 else:
