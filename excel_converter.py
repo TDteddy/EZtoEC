@@ -354,7 +354,15 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         df = df[~df["판매처"].map(to_str).str.contains("로켓그로스", na=False)].copy()
         df = df[~df["판매처"].map(to_str).str.contains("전용수동발주 에이더", na=False)].copy()
 
-        # 5) 수동발주 케이스의 코드10 빈 값 검사 (로켓그로스/에이더 제외 후 실행)
+        # 5) CS 컬럼에 '전체 취소' 포함 시 제외
+        if "CS" in df.columns:
+            before_count = len(df)
+            df = df[~df["CS"].map(to_str).str.contains("전체 취소", na=False)].copy()
+            removed_count = before_count - len(df)
+            if removed_count > 0:
+                print(f"  ℹ️  CS '전체 취소' 건 제외: {removed_count}건")
+
+        # 6) 수동발주 케이스의 코드10 빈 값 검사 (로켓그로스/에이더 제외 후 실행)
         manual_order_mask = df["판매처"].astype(str).str.contains("수동발주", na=False)
         manual_orders = df[manual_order_mask].copy()
 
