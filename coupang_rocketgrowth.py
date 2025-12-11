@@ -202,6 +202,7 @@ def validate_and_map_products(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[Dict
                         "gpt_suggestion": suggestion,
                         "gpt_multiplier": gpt_result.get("quantity_multiplier") if gpt_result else None,
                         "gpt_brand": gpt_result.get("brand") if gpt_result else None,
+                        "is_set_product": gpt_result.get("is_set_product", False) if gpt_result else False,
                         "confidence": confidence,
                         "reason": gpt_result.get("reason") if gpt_result else "매칭 실패",
                         "sample_data": {
@@ -761,12 +762,36 @@ def process_coupang_rocketgrowth(target_date: str, max_retries: int = 5) -> Dict
 
                 print("\n❌ 업로드를 중단합니다.")
                 print("   DB에 없는 상품이 포함된 데이터는 업로드할 수 없습니다.")
-                print("\n🌐 웹 에디터를 실행합니다...")
-                print("   브라우저에서 http://localhost:5001 접속하여 상품을 매핑하세요.\n")
+
+                # 세트상품과 일반상품 구분
+                has_set_products = any(p.get("is_set_product", False) for p in pending_mappings)
+                has_regular_products = any(not p.get("is_set_product", False) for p in pending_mappings)
 
                 try:
-                    from coupang_product_editor import start_editor
                     import threading
+
+                    # 세트상품이 있으면 세트상품 편집기 실행
+                    if has_set_products:
+                        from set_product_editor import start_editor as start_set_editor
+
+                        print("\n🌐 세트상품 편집기를 실행합니다...")
+                        print("   브라우저에서 http://localhost:5002 접속하여 세트상품을 생성하세요.\n")
+
+                        set_editor_thread = threading.Thread(
+                            target=start_set_editor,
+                            kwargs={"port": 5002, "debug": False},
+                            daemon=True
+                        )
+                        set_editor_thread.start()
+
+                        # 사용자가 세트상품 생성 완료 후 Enter를 누르기를 기다림
+                        input("\n세트상품 생성을 완료했다면 Enter를 눌러 계속 진행하세요...")
+
+                    # 일반상품 편집기 실행 (일반상품 또는 세트상품 매핑용)
+                    from coupang_product_editor import start_editor
+
+                    print("\n🌐 상품 매핑 편집기를 실행합니다...")
+                    print("   브라우저에서 http://localhost:5001 접속하여 상품을 매핑하세요.\n")
 
                     # 웹 에디터를 백그라운드 스레드로 실행
                     editor_thread = threading.Thread(
