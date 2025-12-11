@@ -332,7 +332,7 @@ EDITOR_TEMPLATE = """
                             <optgroup label="세트상품">
                             {% for set_product in set_products %}
                             {% set total_cost = namespace(value=0) %}
-                            {% for item_inner in set_product.items %}
+                            {% for item_inner in set_product.set_items %}
                                 {% set total_cost.value = total_cost.value + (item_inner.cost_price * item_inner.quantity) %}
                             {% endfor %}
                             <option value="{{ set_product.set_name }}"
