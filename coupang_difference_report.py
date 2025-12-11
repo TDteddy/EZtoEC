@@ -187,7 +187,8 @@ def process_coupang_difference_report(
                     unmapped_items.append({
                         "option_name": report_option_name,
                         "suggestion": suggestion,
-                        "confidence": confidence
+                        "confidence": confidence,
+                        "is_set_product": gpt_result.get("is_set_product", False) if gpt_result else False
                     })
 
         # 매핑되지 않은 항목 처리
@@ -196,14 +197,70 @@ def process_coupang_difference_report(
             print(f"\n⚠️  매핑되지 않은 항목: {len(unmapped_items)}건")
 
             if retry_count < max_retries:
-                print(f"\n매핑되지 않은 항목이 있습니다. 수동 매핑 후 계속하시겠습니까?")
-                print("계속하려면 엔터, 종료하려면 'q'를 입력하세요.")
-                user_input = input("> ").strip().lower()
+                print("\n❌ 업로드를 중단합니다.")
+                print("   DB에 없는 상품이 포함된 데이터는 업로드할 수 없습니다.")
 
-                if user_input == 'q':
-                    print("❌ 사용자가 작업을 중단했습니다.")
+                # 세트상품과 일반상품 구분
+                has_set_products = any(p.get("is_set_product", False) for p in unmapped_items)
+                has_regular_products = any(not p.get("is_set_product", False) for p in unmapped_items)
+
+                try:
+                    import threading
+
+                    # 세트상품이 있으면 세트상품 편집기 실행
+                    if has_set_products:
+                        from set_product_editor import start_editor as start_set_editor
+
+                        print("\n🌐 세트상품 편집기를 실행합니다...")
+                        print("   브라우저에서 http://localhost:5002 접속하여 세트상품을 생성하세요.\n")
+
+                        set_editor_thread = threading.Thread(
+                            target=start_set_editor,
+                            kwargs={"port": 5002, "debug": False},
+                            daemon=True
+                        )
+                        set_editor_thread.start()
+
+                        # 사용자가 세트상품 생성 완료 후 Enter를 누르기를 기다림
+                        input("\n세트상품 생성을 완료했다면 Enter를 눌러 계속 진행하세요...")
+
+                    # 일반상품 편집기 실행 (일반상품 또는 세트상품 매핑용)
+                    from coupang_product_editor import start_editor
+
+                    print("\n🌐 상품 매핑 편집기를 실행합니다...")
+                    print("   브라우저에서 http://localhost:5001 접속하여 상품을 매핑하세요.\n")
+
+                    # 웹 에디터를 백그라운드 스레드로 실행
+                    editor_thread = threading.Thread(
+                        target=start_editor,
+                        kwargs={"pending_list": unmapped_items, "port": 5001, "debug": False},
+                        daemon=True
+                    )
+                    editor_thread.start()
+
+                    # 사용자가 웹에서 매핑 완료 후 Enter를 누르기를 기다림
+                    input("\n매핑을 완료했다면 Enter를 눌러 계속 진행하세요...")
+
+                    print("\n✅ 매핑을 저장했습니다.")
+                    print("   → 데이터를 다시 검증합니다...\n")
+
+                    # 루프를 계속해서 재검증 시도
+                    continue
+
+                except KeyboardInterrupt:
+                    print("\n⚠️  사용자가 중단했습니다.")
                     db.close()
                     result["validation"] = {"success": False, "error": "User cancelled"}
+                    return {
+                        "success": False,
+                        "result": result
+                    }
+                except Exception as e:
+                    print(f"\n⚠️  웹 에디터 실행 실패: {e}")
+                    print("   수동으로 coupang_product_mapping.py를 사용하여 매핑을 추가하세요.")
+                    print("   매핑 완료 후 프로그램을 다시 실행하세요.")
+                    db.close()
+                    result["validation"] = {"success": False, "error": "Editor failed"}
                     return {
                         "success": False,
                         "result": result
