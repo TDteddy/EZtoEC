@@ -1628,6 +1628,12 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
 if __name__ == "__main__":
     import sys
 
+    # DB에서 요율 정보 동기화
+    print("📊 요율 정보 동기화 중...")
+    from excel_converter import sync_rates_from_db
+    sync_rates_from_db()
+    print()
+
     # 환경 변수 확인
     if not all([USER_ID, API_CERT_KEY, COM_CODE]):
         print("❌ 환경 변수가 설정되지 않았습니다.")
