@@ -1629,10 +1629,20 @@ if __name__ == "__main__":
     import sys
 
     # DB에서 요율 정보 동기화
-    print("📊 요율 정보 동기화 중...")
-    from excel_converter import sync_rates_from_db
-    sync_rates_from_db()
-    print()
+    try:
+        print("📊 요율 정보 동기화 중...")
+        from excel_converter import sync_rates_from_db
+        sync_rates_from_db()
+        print()
+    except ImportError:
+        # 빌드된 exe에서 함수를 찾지 못한 경우 (재빌드 필요)
+        print("⚠️  요율 동기화 함수를 찾을 수 없습니다. 기존 rates.yml 사용")
+        print()
+    except Exception as e:
+        # 기타 예외 (DB 연결 실패 등)
+        print(f"⚠️  요율 동기화 실패: {e}")
+        print("   기존 rates.yml 파일을 사용합니다.")
+        print()
 
     # 환경 변수 확인
     if not all([USER_ID, API_CERT_KEY, COM_CODE]):
