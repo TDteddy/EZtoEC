@@ -325,17 +325,17 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     if sales_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
+    # 전표 묶음 순번 자동 할당: 각 행마다 독립적인 전표로 전송
+    # 이카운트에서 같은 날짜+브랜드+거래처를 합치지 않도록 모든 행에 유니크 순번 부여
     sales_df_copy = sales_df.copy()
-    sales_df_copy["전표묶음순번"] = sales_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
+    sales_df_copy["전표묶음순번"] = range(1, len(sales_df_copy) + 1)
 
     sale_list = []
 
     for _, row in sales_df_copy.iterrows():
         bulk_data = {
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 각 행마다 유니크한 순번
             "CUST": "",  # 거래처코드 (없음)
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
@@ -410,10 +410,10 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     if purchase_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
+    # 전표 묶음 순번 자동 할당: 각 행마다 독립적인 전표로 전송
+    # 이카운트에서 같은 날짜+브랜드+거래처를 합치지 않도록 모든 행에 유니크 순번 부여
     purchase_df_copy = purchase_df.copy()
-    purchase_df_copy["전표묶음순번"] = purchase_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
+    purchase_df_copy["전표묶음순번"] = range(1, len(purchase_df_copy) + 1)
 
     purchase_list = []
 
@@ -422,7 +422,7 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
             "ORD_DATE": "",  # 발주일자
             "ORD_NO": "",  # 발주번호
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 각 행마다 유니크한 순번
             "CUST": "",  # 거래처코드
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
