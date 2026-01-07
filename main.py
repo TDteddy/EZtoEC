@@ -325,14 +325,14 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     if sales_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 각 행마다 독립적인 전표로 전송
-    # 이카운트에서 같은 날짜+브랜드+거래처를 합치지 않도록 모든 행에 유니크 순번 부여
-    sales_df_copy = sales_df.copy()
-    sales_df_copy["전표묶음순번"] = range(1, len(sales_df_copy) + 1)
+    # 전표 묶음 순번이 없으면 추가 (하위 호환)
+    if "전표묶음순번" not in sales_df.columns:
+        sales_df = sales_df.copy()
+        sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
 
     sale_list = []
 
-    for _, row in sales_df_copy.iterrows():
+    for _, row in sales_df.iterrows():
         bulk_data = {
             "IO_DATE": safe_date(row.get("일자")),
             "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 각 행마다 유니크한 순번
@@ -410,14 +410,14 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     if purchase_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 각 행마다 독립적인 전표로 전송
-    # 이카운트에서 같은 날짜+브랜드+거래처를 합치지 않도록 모든 행에 유니크 순번 부여
-    purchase_df_copy = purchase_df.copy()
-    purchase_df_copy["전표묶음순번"] = range(1, len(purchase_df_copy) + 1)
+    # 전표 묶음 순번이 없으면 추가 (하위 호환)
+    if "전표묶음순번" not in purchase_df.columns:
+        purchase_df = purchase_df.copy()
+        purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
 
     purchase_list = []
 
-    for _, row in purchase_df_copy.iterrows():
+    for _, row in purchase_df.iterrows():
         bulk_data = {
             "ORD_DATE": "",  # 발주일자
             "ORD_NO": "",  # 발주번호
@@ -467,11 +467,11 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
 
 def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> List[pd.DataFrame]:
     """
-    DataFrame을 전표번호별로 그룹화하여 배치로 분할
+    DataFrame을 전표묶음순번별로 그룹화하여 배치로 분할
 
-    - 전표는 "일자" + "브랜드" + "판매채널" 기준으로 그룹화
-    - 전표가 중간에 끊기지 않도록 처리
-    - 한 전표가 300건을 넘으면 그것도 300건씩 분할
+    - 각 전표묶음순번이 별도의 배치로 전송됨
+    - 전표묶음순번 컬럼이 있으면 그 기준으로 그룹화
+    - 없으면 일자+브랜드+판매채널 기준으로 그룹화 (하위 호환)
 
     Args:
         df: 판매 또는 구매 DataFrame
@@ -483,8 +483,12 @@ def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> Lis
     if df.empty:
         return []
 
-    # 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    grouped = df.groupby(["일자", "브랜드", "판매채널"], sort=False)
+    # 전표묶음순번 컬럼이 있으면 그 기준으로 그룹화
+    if "전표묶음순번" in df.columns:
+        grouped = df.groupby("전표묶음순번", sort=False)
+    else:
+        # 하위 호환: 일자 + 브랜드 + 판매채널 기준으로 그룹화
+        grouped = df.groupby(["일자", "브랜드", "판매채널"], sort=False)
 
     batches = []
     current_batch = []
@@ -641,6 +645,13 @@ def upload_dataframes_to_ecount(sales_df: pd.DataFrame, purchase_df: pd.DataFram
         "sales_upload": None,
         "purchase_upload": None
     }
+
+    # 전표 묶음 순번 추가: 각 행마다 독립적인 전표로 전송되도록 유니크 순번 부여
+    if not sales_df.empty and "전표묶음순번" not in sales_df.columns:
+        sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
+
+    if not purchase_df.empty and "전표묶음순번" not in purchase_df.columns:
+        purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
 
     # ===== 1단계: 이카운트 로그인 =====
     print(f"\n[1단계] 이카운트 로그인 중...")
@@ -855,6 +866,13 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
         return results
 
     # 선택적: 엑셀 파일로 저장은 이미 process_coupang_rocketgrowth에서 완료됨
+
+    # 전표 묶음 순번 추가: 각 행마다 독립적인 전표로 전송되도록 유니크 순번 부여
+    if not sales_df.empty and "전표묶음순번" not in sales_df.columns:
+        sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
+
+    if not purchase_df.empty and "전표묶음순번" not in purchase_df.columns:
+        purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
@@ -1115,6 +1133,10 @@ def fix_upload_from_batch(excel_file: str, data_type: str, start_batch: int) -> 
     except Exception as e:
         print(f"❌ 파일 읽기 실패: {e}")
         return results
+
+    # 전표 묶음 순번 추가: 컬럼이 없으면 각 행마다 유니크 순번 부여
+    if "전표묶음순번" not in df.columns:
+        df["전표묶음순번"] = range(1, len(df) + 1)
 
     # ===== 2단계: 배치 분할 =====
     print(f"\n[2단계] 배치 분할 중...")
@@ -1390,6 +1412,13 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
     if save_excel and excel_result:
         save_to_excel(excel_result, "output_ecount.xlsx")
         print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
+
+    # 전표 묶음 순번 추가: 각 행마다 독립적인 전표로 전송되도록 유니크 순번 부여
+    if sales_df is not None and not sales_df.empty and "전표묶음순번" not in sales_df.columns:
+        sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
+
+    if purchase_df is not None and not purchase_df.empty and "전표묶음순번" not in purchase_df.columns:
+        purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
