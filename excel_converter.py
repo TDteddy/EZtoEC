@@ -491,6 +491,14 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         po_dt = pd.to_datetime(df["발주일"], errors="coerce")
         df["일자"] = order_dt.fillna(po_dt).dt.date
 
+        # 일자 분포 확인 (디버깅용)
+        date_counts = df["일자"].value_counts().sort_index()
+        if len(date_counts) > 0:
+            print(f"\n  📅 일자 분포:")
+            for date_val, count in date_counts.items():
+                print(f"     {date_val}: {count}건")
+            print()
+
         # 7) 공통 필드
         df["순번"] = ""
         df["판매No."] = ""
