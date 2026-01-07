@@ -865,14 +865,23 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
         results["coupang_processing"] = {"success": False, "error": str(e)}
         return results
 
-    # 선택적: 엑셀 파일로 저장은 이미 process_coupang_rocketgrowth에서 완료됨
-
     # 전표 묶음 순번 추가: 각 행마다 독립적인 전표로 전송되도록 유니크 순번 부여
     if not sales_df.empty and "전표묶음순번" not in sales_df.columns:
         sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
 
     if not purchase_df.empty and "전표묶음순번" not in purchase_df.columns:
         purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
+
+    # 전표묶음순번이 포함된 최종 데이터를 다시 엑셀로 저장
+    from coupang_rocketgrowth import save_to_excel as save_coupang_to_excel
+    save_coupang_to_excel(
+        sales_df, purchase_df,
+        coupang_result.get("sales_voucher", pd.DataFrame()),
+        coupang_result.get("cost_voucher", pd.DataFrame()),
+        coupang_result.get("fee_voucher", pd.DataFrame()),
+        f"output_coupang_rocketgrowth_{target_date}.xlsx"
+    )
+    print(f"  - 전표묶음순번 포함 엑셀 재저장 완료")
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
@@ -1408,17 +1417,20 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
         print("   매핑을 완료한 후 프로그램을 다시 실행하세요.")
         return results
 
-    # 선택적: 엑셀 파일로 저장
-    if save_excel and excel_result:
-        save_to_excel(excel_result, "output_ecount.xlsx")
-        print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
-
     # 전표 묶음 순번 추가: 각 행마다 독립적인 전표로 전송되도록 유니크 순번 부여
     if sales_df is not None and not sales_df.empty and "전표묶음순번" not in sales_df.columns:
         sales_df["전표묶음순번"] = range(1, len(sales_df) + 1)
 
     if purchase_df is not None and not purchase_df.empty and "전표묶음순번" not in purchase_df.columns:
         purchase_df["전표묶음순번"] = range(1, len(purchase_df) + 1)
+
+    # 선택적: 엑셀 파일로 저장
+    if save_excel and excel_result:
+        # excel_result 딕셔너리에도 업데이트된 DataFrame 반영
+        excel_result["sales"] = sales_df
+        excel_result["purchase"] = purchase_df
+        save_to_excel(excel_result, "output_ecount.xlsx")
+        print(f"  - 엑셀 파일 저장: output_ecount.xlsx")
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
