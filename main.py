@@ -467,16 +467,16 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
 
 def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> List[pd.DataFrame]:
     """
-    DataFrame을 날짜+브랜드+판매채널 그룹별로 배치 분할
+    DataFrame을 batch_size 건수씩 단순 분할
 
-    - 같은 날짜+브랜드+판매채널 그룹은 절대 찢어지지 않음
-    - 여러 그룹을 모아 최대 300건까지 배치 생성
-    - 한 그룹이 300건 넘으면 그 그룹만으로 배치 생성 (300건 초과 가능)
-    - 각 배치는 별도 API 호출로 전송되며, UPLOAD_SER_NO는 배치마다 1부터 재부여
+    - 날짜+브랜드+판매채널 그룹을 찢을 수 있음
+    - 각 배치는 최대 300건 (마지막 배치는 300건 미만 가능)
+    - UPLOAD_SER_NO는 각 배치 내에서 날짜+브랜드+판매채널별로 1부터 부여
+    - 같은 그룹이 여러 배치에 나뉘어도 각 배치에서 독립적으로 순번 할당
 
     Args:
         df: 판매 또는 구매 DataFrame
-        batch_size: 배치당 최대 건수 (기본 300, 그룹 크기에 따라 초과 가능)
+        batch_size: 배치당 최대 건수 (기본 300)
 
     Returns:
         분할된 DataFrame 리스트
@@ -484,44 +484,11 @@ def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> Lis
     if df.empty:
         return []
 
-    # 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    grouped = df.groupby(["일자", "브랜드", "판매채널"], sort=False)
-
+    # 단순히 batch_size 건수씩 분할
     batches = []
-    current_batch = []
-    current_size = 0
-
-    for group_key, group_df in grouped:
-        group_size = len(group_df)
-
-        # 그룹 자체가 batch_size를 넘으면 통째로 하나의 배치로 (절대 찢지 않음)
-        if group_size > batch_size:
-            # 현재 배치가 있으면 먼저 저장
-            if current_batch:
-                batches.append(pd.concat(current_batch, ignore_index=True))
-                current_batch = []
-                current_size = 0
-
-            # 그룹을 통째로 하나의 배치로 (300건 초과 가능)
-            batches.append(group_df.copy())
-
-        # 현재 배치에 추가하면 batch_size 초과하는 경우
-        elif current_size + group_size > batch_size:
-            # 현재 배치 저장
-            if current_batch:
-                batches.append(pd.concat(current_batch, ignore_index=True))
-            # 새 배치 시작
-            current_batch = [group_df.copy()]
-            current_size = group_size
-
-        # 현재 배치에 추가
-        else:
-            current_batch.append(group_df.copy())
-            current_size += group_size
-
-    # 마지막 배치
-    if current_batch:
-        batches.append(pd.concat(current_batch, ignore_index=True))
+    for i in range(0, len(df), batch_size):
+        batch = df.iloc[i:i+batch_size].copy()
+        batches.append(batch)
 
     return batches
 
