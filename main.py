@@ -325,17 +325,17 @@ def convert_sales_df_to_ecount(sales_df: pd.DataFrame) -> List[Dict[str, Any]]:
     if sales_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
-    sales_df_copy = sales_df.copy()
-    sales_df_copy["전표묶음순번"] = sales_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
+    # 전표 묶음 순번 할당: 날짜 + 브랜드 + 판매채널 기준으로 그룹화
+    # 각 배치마다 1부터 시작하므로 같은 그룹은 같은 전표로 묶임
+    sales_df = sales_df.copy()
+    sales_df["전표묶음순번"] = sales_df.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
 
     sale_list = []
 
-    for _, row in sales_df_copy.iterrows():
+    for _, row in sales_df.iterrows():
         bulk_data = {
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 날짜+브랜드+판매채널별 그룹 순번
             "CUST": "",  # 거래처코드 (없음)
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
@@ -410,19 +410,19 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
     if purchase_df.empty:
         return []
 
-    # 전표 묶음 순번 자동 할당: 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    # ngroup()은 0부터 시작하므로 +1하여 1부터 시작하도록 설정
-    purchase_df_copy = purchase_df.copy()
-    purchase_df_copy["전표묶음순번"] = purchase_df_copy.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
+    # 전표 묶음 순번 할당: 날짜 + 브랜드 + 판매채널 기준으로 그룹화
+    # 각 배치마다 1부터 시작하므로 같은 그룹은 같은 전표로 묶임
+    purchase_df = purchase_df.copy()
+    purchase_df["전표묶음순번"] = purchase_df.groupby(["일자", "브랜드", "판매채널"]).ngroup() + 1
 
     purchase_list = []
 
-    for _, row in purchase_df_copy.iterrows():
+    for _, row in purchase_df.iterrows():
         bulk_data = {
             "ORD_DATE": "",  # 발주일자
             "ORD_NO": "",  # 발주번호
             "IO_DATE": safe_date(row.get("일자")),
-            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 그룹 순번 (1부터 시작)
+            "UPLOAD_SER_NO": str(int(row.get("전표묶음순번"))),  # 날짜+브랜드+판매채널별 그룹 순번
             "CUST": "",  # 거래처코드
             "CUST_DES": safe_str(row.get("거래처명")),
             "EMP_CD": "",  # 담당자
@@ -467,11 +467,12 @@ def convert_purchase_df_to_ecount(purchase_df: pd.DataFrame) -> List[Dict[str, A
 
 def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> List[pd.DataFrame]:
     """
-    DataFrame을 전표번호별로 그룹화하여 배치로 분할
+    DataFrame을 batch_size 건수씩 단순 분할
 
-    - 전표는 "일자" + "브랜드" + "판매채널" 기준으로 그룹화
-    - 전표가 중간에 끊기지 않도록 처리
-    - 한 전표가 300건을 넘으면 그것도 300건씩 분할
+    - 날짜+브랜드+판매채널 그룹을 찢을 수 있음
+    - 각 배치는 최대 300건 (마지막 배치는 300건 미만 가능)
+    - UPLOAD_SER_NO는 각 배치 내에서 날짜+브랜드+판매채널별로 1부터 부여
+    - 같은 그룹이 여러 배치에 나뉘어도 각 배치에서 독립적으로 순번 할당
 
     Args:
         df: 판매 또는 구매 DataFrame
@@ -483,46 +484,11 @@ def split_dataframe_into_batches(df: pd.DataFrame, batch_size: int = 300) -> Lis
     if df.empty:
         return []
 
-    # 일자 + 브랜드 + 판매채널 기준으로 그룹화
-    grouped = df.groupby(["일자", "브랜드", "판매채널"], sort=False)
-
+    # 단순히 batch_size 건수씩 분할
     batches = []
-    current_batch = []
-    current_size = 0
-
-    for group_key, group_df in grouped:
-        group_size = len(group_df)
-
-        # 그룹 자체가 batch_size를 넘으면 분할
-        if group_size > batch_size:
-            # 현재 배치가 있으면 먼저 저장
-            if current_batch:
-                batches.append(pd.concat(current_batch, ignore_index=True))
-                current_batch = []
-                current_size = 0
-
-            # 그룹을 batch_size씩 분할
-            for i in range(0, group_size, batch_size):
-                chunk = group_df.iloc[i:i+batch_size].copy()
-                batches.append(chunk)
-
-        # 현재 배치에 추가하면 batch_size 초과하는 경우
-        elif current_size + group_size > batch_size:
-            # 현재 배치 저장
-            if current_batch:
-                batches.append(pd.concat(current_batch, ignore_index=True))
-            # 새 배치 시작
-            current_batch = [group_df.copy()]
-            current_size = group_size
-
-        # 현재 배치에 추가
-        else:
-            current_batch.append(group_df.copy())
-            current_size += group_size
-
-    # 마지막 배치
-    if current_batch:
-        batches.append(pd.concat(current_batch, ignore_index=True))
+    for i in range(0, len(df), batch_size):
+        batch = df.iloc[i:i+batch_size].copy()
+        batches.append(batch)
 
     return batches
 
@@ -853,8 +819,6 @@ def upload_coupang_to_ecount(target_date: str, upload_sales: bool = True,
         print(f"❌ 쿠팡 데이터 처리 실패: {e}")
         results["coupang_processing"] = {"success": False, "error": str(e)}
         return results
-
-    # 선택적: 엑셀 파일로 저장은 이미 process_coupang_rocketgrowth에서 완료됨
 
     # ===== 2단계: 이카운트 로그인 =====
     print("\n[2단계] 이카운트 로그인 중...")
@@ -1627,6 +1591,22 @@ def process_and_upload(upload_sales: bool = True, upload_purchase: bool = True,
 
 if __name__ == "__main__":
     import sys
+
+    # DB에서 요율 정보 동기화
+    try:
+        print("📊 요율 정보 동기화 중...")
+        from excel_converter import sync_rates_from_db
+        sync_rates_from_db()
+        print()
+    except ImportError:
+        # 빌드된 exe에서 함수를 찾지 못한 경우 (재빌드 필요)
+        print("⚠️  요율 동기화 함수를 찾을 수 없습니다. 기존 rates.yml 사용")
+        print()
+    except Exception as e:
+        # 기타 예외 (DB 연결 실패 등)
+        print(f"⚠️  요율 동기화 실패: {e}")
+        print("   기존 rates.yml 파일을 사용합니다.")
+        print()
 
     # 환경 변수 확인
     if not all([USER_ID, API_CERT_KEY, COM_CODE]):

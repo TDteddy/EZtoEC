@@ -21,6 +21,12 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 import yaml
+import mysql.connector
+from mysql.connector import Error
+from dotenv import load_dotenv
+
+# 환경변수 로드
+load_dotenv()
 
 # 판매처 매핑 DB import
 try:
@@ -120,6 +126,72 @@ def safe_filename(name: str, maxlen: int = 80) -> str:
 
 
 # ===== YAML 로더 =====
+def sync_rates_from_db(yaml_path: str = RATES_YAML) -> bool:
+    """
+    DB에서 요율 정보를 가져와서 rates.yml 파일을 업데이트
+
+    Args:
+        yaml_path: 저장할 YAML 파일 경로
+
+    Returns:
+        성공 여부
+    """
+    try:
+        # DB 연결
+        conn = mysql.connector.connect(
+            host=os.environ.get("DB_HOST", "localhost"),
+            user=os.environ.get("DB_USER", "root"),
+            password=os.environ.get("DB_PASSWORD", ""),
+            database="marketplace_rates"
+        )
+        cursor = conn.cursor(dictionary=True)
+
+        # 요율 데이터 조회
+        cursor.execute("""
+            SELECT brand, marketplace, shipping, commission
+            FROM marketplace_rates
+            ORDER BY brand, marketplace
+        """)
+        rows = cursor.fetchall()
+
+        cursor.close()
+        conn.close()
+
+        if not rows:
+            print("⚠️  DB에 요율 데이터가 없습니다.")
+            return False
+
+        # YAML 구조 생성
+        rate_data = {}
+        for row in rows:
+            brand = row['brand']
+            marketplace = row['marketplace']
+            shipping = float(row['shipping'])
+            commission = float(row['commission'])
+
+            if brand not in rate_data:
+                rate_data[brand] = {}
+
+            rate_data[brand][marketplace] = {
+                'shipping': shipping,
+                'commission': commission
+            }
+
+        # YAML 파일 저장
+        with open(yaml_path, 'w', encoding='utf-8') as f:
+            yaml.dump(rate_data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+        print(f"✅ DB에서 요율 정보를 가져와 {yaml_path} 파일을 업데이트했습니다. ({len(rows)}건)")
+        return True
+
+    except Error as e:
+        print(f"❌ DB 연결 실패: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ 요율 동기화 실패: {e}")
+        return False
+
+
 def load_rate_book_from_yaml(path: str) -> dict:
     """
     YAML 구조 예:
@@ -418,6 +490,14 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
         order_dt = pd.to_datetime(df["주문일"], errors="coerce")
         po_dt = pd.to_datetime(df["발주일"], errors="coerce")
         df["일자"] = order_dt.fillna(po_dt).dt.date
+
+        # 일자 분포 확인 (디버깅용)
+        date_counts = df["일자"].value_counts().sort_index()
+        if len(date_counts) > 0:
+            print(f"\n  📅 일자 분포:")
+            for date_val, count in date_counts.items():
+                print(f"     {date_val}: {count}건")
+            print()
 
         # 7) 공통 필드
         df["순번"] = ""
