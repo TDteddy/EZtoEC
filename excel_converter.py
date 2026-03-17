@@ -559,7 +559,7 @@ def process_file(file_path: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         def _project(row):
             seller = to_str(row.get("판매처"))
-            prod_name = to_str(row.get("판매처 상품명"))
+            prod_name = to_str(row.get("상품명"))
             brand = extract_brand(seller, prod_name)
             dom_over = "해외" if "해외" in seller else "국내"
             return f"{brand}_{dom_over}"
